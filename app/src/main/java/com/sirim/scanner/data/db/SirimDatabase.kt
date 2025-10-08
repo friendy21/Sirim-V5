@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SirimRecord::class, SkuRecord::class],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class SirimDatabase : RoomDatabase() {
@@ -61,6 +61,12 @@ abstract class SirimDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE sirim_records ADD COLUMN custom_fields TEXT")
                 database.execSQL("ALTER TABLE sirim_records ADD COLUMN capture_confidence REAL")
+            }
+        }
+
+        val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sku_records ADD COLUMN gallery_paths TEXT")
             }
         }
     }

@@ -35,6 +35,8 @@ import com.sirim.scanner.ui.screens.scanner.ScannerScreen
 import com.sirim.scanner.ui.screens.scanner.ScannerViewModel
 import com.sirim.scanner.ui.screens.settings.SettingsScreen
 import com.sirim.scanner.ui.screens.sku.SkuScannerScreen
+import com.sirim.scanner.ui.screens.sku.SkuRecordFormScreen
+import com.sirim.scanner.ui.screens.sku.SkuRecordFormViewModel
 import com.sirim.scanner.ui.screens.startup.StartupScreen
 import com.sirim.scanner.ui.theme.SirimScannerTheme
 import com.sirim.scanner.ui.viewmodel.PreferencesViewModel
@@ -69,6 +71,7 @@ sealed class Destinations(val route: String) {
     data object SkuScanner : Destinations("sku_scanner")
     data object Storage : Destinations("storage")
     data object RecordForm : Destinations("record_form")
+    data object SkuRecordForm : Destinations("sku_record_form")
     data object Export : Destinations("export")
     data object Settings : Destinations("settings")
     data object Feedback : Destinations("feedback")
@@ -157,10 +160,39 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
         composable(Destinations.SkuScanner.route) {
             SkuScannerScreen(
                 onBack = { navController.popBackStack() },
-                onRecordSaved = {},
+                onRecordSaved = { recordId ->
+                    navController.navigate("${Destinations.SkuRecordForm.route}?recordId=$recordId") {
+                        popUpTo(Destinations.SkuScanner.route) { inclusive = true }
+                    }
+                },
                 repository = container.repository,
                 analyzer = container.barcodeAnalyzer,
                 appScope = container.applicationScope
+            )
+        }
+        composable(
+            route = Destinations.SkuRecordForm.route + "?recordId={recordId}",
+            arguments = listOf(
+                navArgument("recordId") {
+                    type = NavType.LongType
+                    defaultValue = -1L
+                }
+            )
+        ) { backStackEntry ->
+            val viewModel: SkuRecordFormViewModel = viewModel(
+                factory = SkuRecordFormViewModel.Factory(container.repository)
+            )
+            val recordId = backStackEntry.arguments?.getLong("recordId")?.takeIf { it > 0 }
+            SkuRecordFormScreen(
+                viewModel = viewModel,
+                recordId = recordId,
+                onSaved = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+                onRetake = {
+                    navController.navigate(Destinations.SkuScanner.route) {
+                        popUpTo(Destinations.SkuRecordForm.route) { inclusive = true }
+                    }
+                }
             )
         }
         composable(Destinations.Storage.route) {
