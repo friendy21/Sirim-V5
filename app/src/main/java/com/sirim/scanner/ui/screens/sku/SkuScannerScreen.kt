@@ -1,6 +1,10 @@
 package com.sirim.scanner.ui.screens.sku
 
 import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import androidx.camera.core.Camera
@@ -33,7 +37,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sirim.scanner.data.ocr.BarcodeAnalyzer
 import com.sirim.scanner.data.repository.SirimRepository
@@ -63,11 +69,43 @@ fun SkuScannerScreen(
     val databaseInfo by viewModel.databaseInfo.collectAsState()
     val captureAction = remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    val hasCameraPermission = remember {
+    var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
         )
+    }
+    var permissionRequested by rememberSaveable { mutableStateOf(false) }
+    val activity = remember(context) { context.findActivity() }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasCameraPermission = granted
+    }
+
+    val shouldShowRationale = !hasCameraPermission && activity?.let {
+        ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+    } == true
+    val showSettingsButton = !hasCameraPermission && !shouldShowRationale && permissionRequested
+
+    LaunchedEffect(hasCameraPermission) {
+        if (!hasCameraPermission && !permissionRequested) {
+            permissionRequested = true
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasCameraPermission = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(captureState) {
@@ -104,7 +142,7 @@ fun SkuScannerScreen(
             }
 
             // Camera Preview
-            if (hasCameraPermission.value) {
+            if (hasCameraPermission) {
                 SkuCameraPreview(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -115,10 +153,28 @@ fun SkuScannerScreen(
                     captureAction = captureAction
                 )
             } else {
-                Text(
-                    text = "Camera permission is required to scan barcodes.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
+                CameraPermissionCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    title = "Camera access required",
+                    description = if (shouldShowRationale) {
+                        "We need camera access to scan barcodes. Please grant the permission."
+                    } else {
+                        "Camera permission is required to scan barcodes. You can grant it to continue."
+                    },
+                    showSettingsButton = showSettingsButton,
+                    onRequestPermission = {
+                        permissionRequested = true
+                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                    },
+                    onOpenSettings = { openAppSettings(context) },
+                    onCheckPermission = {
+                        hasCameraPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+                    }
                 )
             }
 
@@ -239,6 +295,76 @@ private fun SkuStatusCard(
             }
         }
     }
+}
+
+@Composable
+private fun CameraPermissionCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    description: String,
+    showSettingsButton: Boolean,
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onCheckPermission: () -> Unit
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(48.dp)
+            )
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Button(onClick = onRequestPermission, modifier = Modifier.fillMaxWidth()) {
+                Text("Grant permission")
+            }
+            if (showSettingsButton) {
+                OutlinedButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open app settings")
+                }
+                TextButton(onClick = onCheckPermission) {
+                    Text("I've granted permission")
+                }
+            }
+        }
+    }
+}
+
+private fun openAppSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = Uri.fromParts("package", context.packageName, null)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    context.startActivity(intent)
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable
