@@ -4,4 +4,17 @@
     <string name="camera_permission_required">Camera permission required</string>
     <string name="export_success">Export completed</string>
     <string name="export_failure">Export failed</string>
+    <string name="cd_back">Back</string>
+    <string name="storage_title">Storage</string>
+    <string name="storage_empty_title">No saved data yet</string>
+    <string name="storage_empty_message">Start scanning to populate your storage hub.</string>
+    <string name="storage_sku_export_title">SKU Export: %1$s</string>
+    <string name="storage_sku_export_description">%1$d captured items</string>
+    <string name="storage_action_scanner">SIRIM Scanner</string>
+    <string name="storage_action_view">View</string>
+    <string name="storage_action_share">Share</string>
+    <string name="storage_action_edit">Edit</string>
+    <string name="storage_share_export">Share SKU export</string>
+    <string name="storage_export_view_error">No compatible app found to view the export.</string>
+    <string name="storage_export_edit_error">No compatible app found to edit the export.</string>
 </resources>

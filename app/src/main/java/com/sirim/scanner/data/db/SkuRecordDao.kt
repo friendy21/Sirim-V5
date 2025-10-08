@@ -32,4 +32,7 @@ interface SkuRecordDao {
 
     @Delete
     suspend fun delete(record: SkuRecord)
+
+    @Query("SELECT * FROM sku_records ORDER BY created_at DESC")
+    suspend fun getAllRecordsOnce(): List<SkuRecord>
 }

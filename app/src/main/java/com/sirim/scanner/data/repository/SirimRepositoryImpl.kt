@@ -6,9 +6,9 @@ import com.sirim.scanner.data.db.SirimRecord
 import com.sirim.scanner.data.db.SirimRecordDao
 import com.sirim.scanner.data.db.SkuRecord
 import com.sirim.scanner.data.db.SkuRecordDao
+import com.sirim.scanner.data.db.SkuExportDao
+import com.sirim.scanner.data.db.SkuExportRecord
 import com.sirim.scanner.data.db.StorageRecord
-import com.sirim.scanner.data.db.asStorageRecords
-import com.sirim.scanner.data.db.asStorageRecordsFromSku // <-- IMPORTANT: Make sure this import is present!
 import com.sirim.scanner.data.db.toGalleryList
 import java.io.File
 import java.io.FileOutputStream
@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 class SirimRepositoryImpl(
     private val sirimDao: SirimRecordDao,
     private val skuDao: SkuRecordDao,
+    private val skuExportDao: SkuExportDao,
     private val context: Context
 ) : SirimRepository {
 
@@ -31,20 +32,24 @@ class SirimRepositoryImpl(
 
     override val skuRecords: Flow<List<SkuRecord>> = skuDao.getAllRecords()
 
-    override val storageRecords: Flow<List<StorageRecord>> = combine(sirimRecords, skuRecords) { sirim, sku ->
-        // THIS IS THE FIX: Use the correct function name for the sku list
-        (sirim.asStorageRecords() + sku.asStorageRecordsFromSku()).sortedByDescending { it.createdAt }
+    override val skuExports: Flow<List<SkuExportRecord>> = skuExportDao.observeExports()
+
+    override val storageRecords: Flow<List<StorageRecord>> = combine(sirimRecords, skuExports) { sirim, exports ->
+        val storageItems = mutableListOf<StorageRecord>()
+        val lastUpdated = sirim.maxOfOrNull { it.createdAt } ?: 0L
+        storageItems += StorageRecord.SirimDatabase(
+            totalRecords = sirim.size,
+            lastUpdated = lastUpdated
+        )
+        storageItems += exports.map { StorageRecord.SkuExport(it) }
+        storageItems.sortedByDescending { it.createdAt }
     }
 
     override fun searchSirim(query: String): Flow<List<SirimRecord>> = sirimDao.searchRecords("%$query%")
 
     override fun searchSku(query: String): Flow<List<SkuRecord>> = skuDao.searchRecords("%$query%")
 
-    override fun searchAll(query: String): Flow<List<StorageRecord>> =
-        combine(searchSirim(query), searchSku(query)) { sirim, sku ->
-            // APPLY THE SAME FIX HERE
-            (sirim.asStorageRecords() + sku.asStorageRecordsFromSku()).sortedByDescending { it.createdAt }
-        }
+    override fun searchAll(query: String): Flow<List<StorageRecord>> = storageRecords
 
     override suspend fun upsert(record: SirimRecord): Long = withContext(Dispatchers.IO) {
         try {
@@ -79,6 +84,8 @@ class SirimRepositoryImpl(
 
     override suspend fun getSkuRecord(id: Long): SkuRecord? = skuDao.getRecordById(id)
 
+    override suspend fun getAllSkuRecords(): List<SkuRecord> = skuDao.getAllRecordsOnce()
+
     override suspend fun findBySerial(serial: String): SirimRecord? = sirimDao.findBySerial(serial)
 
     override suspend fun findByBarcode(barcode: String): SkuRecord? = skuDao.findByBarcode(barcode)
@@ -94,4 +101,6 @@ class SirimRepositoryImpl(
             file.absolutePath
         }
     }
+
+    override suspend fun recordSkuExport(record: SkuExportRecord): Long = skuExportDao.upsert(record)
 }

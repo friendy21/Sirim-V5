@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.sirim.scanner.data.db.SkuRecord
+import com.sirim.scanner.data.db.SkuExportRecord
 import com.sirim.scanner.data.ocr.BarcodeAnalyzer
 import com.sirim.scanner.data.ocr.BarcodeDetection
+import com.sirim.scanner.data.export.ExportManager
 import com.sirim.scanner.data.repository.SirimRepository
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -20,7 +22,8 @@ import kotlinx.coroutines.launch
 class SkuScannerViewModel private constructor(
     private val repository: SirimRepository,
     private val analyzer: BarcodeAnalyzer,
-    private val appScope: CoroutineScope
+    private val appScope: CoroutineScope,
+    private val exportManager: ExportManager
 ) : ViewModel() {
 
     private val processing = AtomicBoolean(false)
@@ -162,6 +165,8 @@ class SkuScannerViewModel private constructor(
                     imagePath = imagePath
                 )
 
+                exportSkuWorkbook()
+
                 loadDatabaseInfo()
 
                 delay(2000)
@@ -185,15 +190,35 @@ class SkuScannerViewModel private constructor(
         }
     }
 
+    private fun exportSkuWorkbook() {
+        appScope.launch {
+            runCatching {
+                val records = repository.getAllSkuRecords()
+                if (records.isEmpty()) return@launch
+
+                val uri = exportManager.exportSkuToExcel(records)
+                val fileName = uri.lastPathSegment ?: "sku_records.xlsx"
+                val exportRecord = SkuExportRecord(
+                    uri = uri.toString(),
+                    fileName = fileName,
+                    recordCount = records.size,
+                    updatedAt = System.currentTimeMillis()
+                )
+                repository.recordSkuExport(exportRecord)
+            }
+        }
+    }
+
     companion object {
         fun Factory(
             repository: SirimRepository,
             analyzer: BarcodeAnalyzer,
-            appScope: CoroutineScope
+            appScope: CoroutineScope,
+            exportManager: ExportManager
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SkuScannerViewModel(repository, analyzer, appScope) as T
+                return SkuScannerViewModel(repository, analyzer, appScope, exportManager) as T
             }
         }
     }

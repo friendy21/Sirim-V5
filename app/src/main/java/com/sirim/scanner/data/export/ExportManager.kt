@@ -9,6 +9,7 @@ import com.itextpdf.layout.element.Cell
 import com.itextpdf.layout.element.Paragraph
 import com.itextpdf.layout.element.Table
 import com.sirim.scanner.data.db.SirimRecord
+import com.sirim.scanner.data.db.SkuRecord
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
@@ -80,6 +81,51 @@ class ExportManager(private val context: Context) {
             createSummarySheet(workbook.createSheet("Summary"), records)
             createDataSheet(workbook.createSheet("All Records"), records)
             createBrandSheet(workbook.createSheet("By Brand"), records)
+
+            FileOutputStream(file).use { output ->
+                workbook.write(output)
+            }
+        }
+        return toFileUri(file)
+    }
+
+    fun exportSkuToExcel(records: List<SkuRecord>): Uri {
+        val file = createSkuExportFile()
+        XSSFWorkbook().use { workbook ->
+            val sheet = workbook.createSheet("SKU Records")
+            val headers = listOf(
+                "Barcode",
+                "Brand",
+                "Model",
+                "Type",
+                "Rating",
+                "Size",
+                "Batch",
+                "Captured"
+            )
+            val headerStyle: XSSFCellStyle = workbook.createCellStyle().apply {
+                alignment = HorizontalAlignment.CENTER
+                borderBottom = BorderStyle.MEDIUM
+            }
+            val headerRow = sheet.createRow(0)
+            headers.forEachIndexed { index, title ->
+                sheet.setColumnWidth(index, 8_000)
+                val cell = headerRow.createCell(index)
+                cell.setCellValue(title)
+                cell.cellStyle = headerStyle
+            }
+
+            records.forEachIndexed { rowIndex, record ->
+                val row = sheet.createRow(rowIndex + 1)
+                row.createCell(0).setCellValue(record.barcode)
+                row.createCell(1).setCellValue(record.brandTrademark.orEmpty())
+                row.createCell(2).setCellValue(record.model.orEmpty())
+                row.createCell(3).setCellValue(record.type.orEmpty())
+                row.createCell(4).setCellValue(record.rating.orEmpty())
+                row.createCell(5).setCellValue(record.size.orEmpty())
+                row.createCell(6).setCellValue(record.batchNo.orEmpty())
+                row.createCell(7).setCellValue(formatDisplayTimestamp(record.createdAt))
+            }
 
             FileOutputStream(file).use { output ->
                 workbook.write(output)
@@ -195,6 +241,14 @@ class ExportManager(private val context: Context) {
         return File(directory, "${prefix}_$timestamp.$extension")
     }
 
+    private fun createSkuExportFile(): File {
+        val directory = getSkuExportDirectory()
+        if (!directory.exists()) {
+            directory.mkdirs()
+        }
+        return File(directory, "sku_records.xlsx")
+    }
+
     private fun getExportDirectory(): File {
         val directoryName = formatTimestamp(DIRECTORY_FORMAT)
         val exportDir = File(context.getExternalFilesDir(null), "SIRIM_Exports/$directoryName")
@@ -203,6 +257,13 @@ class ExportManager(private val context: Context) {
         }
         return exportDir
     }
+
+    private fun getSkuExportDirectory(): File =
+        File(context.getExternalFilesDir(null), "SIRIM_Exports/SKU").apply {
+            if (!exists()) {
+                mkdirs()
+            }
+        }
 
     private fun toFileUri(file: File): Uri = FileProvider.getUriForFile(
         context,
@@ -223,7 +284,12 @@ class ExportManager(private val context: Context) {
 
 private val FILE_NAME_FORMAT = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
 private val DIRECTORY_FORMAT = SimpleDateFormat("yyyyMMdd", Locale.getDefault())
+private val DISPLAY_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
 
 private fun formatTimestamp(format: SimpleDateFormat): String = synchronized(format) {
     format.format(Date())
+}
+
+private fun formatDisplayTimestamp(timestamp: Long): String = synchronized(DISPLAY_FORMAT) {
+    DISPLAY_FORMAT.format(Date(timestamp))
 }

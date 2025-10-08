@@ -37,6 +37,8 @@ import com.sirim.scanner.ui.screens.settings.SettingsScreen
 import com.sirim.scanner.ui.screens.sku.SkuScannerScreen
 import com.sirim.scanner.ui.screens.sku.SkuRecordFormScreen
 import com.sirim.scanner.ui.screens.sku.SkuRecordFormViewModel
+import com.sirim.scanner.ui.screens.storage.StorageHubScreen
+import com.sirim.scanner.ui.screens.storage.StorageHubViewModel
 import com.sirim.scanner.ui.screens.startup.StartupScreen
 import com.sirim.scanner.ui.theme.SirimScannerTheme
 import com.sirim.scanner.ui.viewmodel.PreferencesViewModel
@@ -70,6 +72,7 @@ sealed class Destinations(val route: String) {
     data object SirimScanner : Destinations("sirim_scanner")
     data object SkuScanner : Destinations("sku_scanner")
     data object Storage : Destinations("storage")
+    data object RecordList : Destinations("record_list")
     data object RecordForm : Destinations("record_form")
     data object SkuRecordForm : Destinations("sku_record_form")
     data object Export : Destinations("export")
@@ -150,7 +153,7 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onRecordSaved = { draft ->
-                    navController.navigate("${Destinations.RecordForm.route}?recordId=${draft.recordId}") {
+                    navController.navigate("${Destinations.RecordForm.route}?recordId=${draft.recordId}&readOnly=false") {
                         popUpTo(Destinations.SirimScanner.route) { inclusive = true }
                     }
                     navController.getBackStackEntry(Destinations.RecordForm.route).savedStateHandle["scan_draft"] = draft
@@ -167,7 +170,8 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
                 },
                 repository = container.repository,
                 analyzer = container.barcodeAnalyzer,
-                appScope = container.applicationScope
+                appScope = container.applicationScope,
+                exportManager = container.exportManager
             )
         }
         composable(
@@ -196,27 +200,69 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
             )
         }
         composable(Destinations.Storage.route) {
+            val viewModel: StorageHubViewModel = viewModel(
+                factory = StorageHubViewModel.Factory(container.repository)
+            )
+            StorageHubScreen(
+                viewModel = viewModel,
+                isSessionValid = isSessionValid,
+                onRequireAuthentication = { action -> requestAuthentication(action) },
+                onBack = { navController.popBackStack() },
+                onOpenSirimScanner = {
+                    navController.navigate(Destinations.SirimScanner.route)
+                },
+                onOpenSkuScanner = {
+                    navController.navigate(Destinations.SkuScanner.route)
+                },
+                onViewSirimRecords = {
+                    navController.navigate("${Destinations.RecordList.route}?readOnly=true")
+                },
+                onEditSirimRecords = {
+                    navController.navigate("${Destinations.RecordList.route}?readOnly=false")
+                },
+                onShareSirimRecords = {
+                    navController.navigate(Destinations.Export.route)
+                }
+            )
+        }
+        composable(
+            route = Destinations.RecordList.route + "?readOnly={readOnly}",
+            arguments = listOf(
+                navArgument("readOnly") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
+            )
+        ) { backStackEntry ->
+            val readOnly = backStackEntry.arguments?.getBoolean("readOnly") ?: false
             val viewModel: RecordViewModel = viewModel(
                 factory = RecordViewModel.Factory(container.repository)
             )
             RecordListScreen(
                 viewModel = viewModel,
-                onAdd = { navController.navigate(Destinations.RecordForm.route) },
+                onAdd = { navController.navigate("${Destinations.RecordForm.route}?readOnly=false") },
                 onEdit = { record ->
-                    navController.navigate("${Destinations.RecordForm.route}?recordId=${record.id}")
+                    navController.navigate(
+                        "${Destinations.RecordForm.route}?recordId=${record.id}&readOnly=$readOnly"
+                    )
                 },
                 onBack = { navController.popBackStack() },
                 onNavigateToExport = { navController.navigate(Destinations.Export.route) },
                 isAuthenticated = isSessionValid,
-                onRequireAuthentication = { action -> requestAuthentication(action) }
+                onRequireAuthentication = { action -> requestAuthentication(action) },
+                readOnly = readOnly
             )
         }
         composable(
-            route = Destinations.RecordForm.route + "?recordId={recordId}",
+            route = Destinations.RecordForm.route + "?recordId={recordId}&readOnly={readOnly}",
             arguments = listOf(
                 navArgument("recordId") {
                     type = NavType.LongType
                     defaultValue = -1L
+                },
+                navArgument("readOnly") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) { backStackEntry ->
@@ -224,6 +270,7 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
                 factory = RecordViewModel.Factory(container.repository)
             )
             val scanDraft = navController.currentBackStackEntry?.savedStateHandle?.remove<ScanDraft>("scan_draft")
+            val readOnly = backStackEntry.arguments?.getBoolean("readOnly") ?: false
             RecordFormScreen(
                 viewModel = viewModel,
                 onSaved = { _: Long -> navController.popBackStack() },
@@ -240,7 +287,8 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
                     navController.navigate(Destinations.Feedback.route)
                 },
                 recordId = backStackEntry.arguments?.getLong("recordId")?.takeIf { it > 0 },
-                scanDraft = scanDraft
+                scanDraft = scanDraft,
+                readOnly = readOnly
             )
         }
         composable(Destinations.Export.route) {
