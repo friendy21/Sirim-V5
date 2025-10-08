@@ -6,13 +6,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [SirimRecord::class, SkuRecord::class],
-    version = 5,
+    entities = [SirimRecord::class, SkuRecord::class, SkuExportRecord::class],
+    version = 6,
     exportSchema = true
 )
 abstract class SirimDatabase : RoomDatabase() {
     abstract fun sirimRecordDao(): SirimRecordDao
     abstract fun skuRecordDao(): SkuRecordDao
+    abstract fun skuExportDao(): SkuExportDao
 
     companion object {
         val MIGRATION_1_2: Migration = object : Migration(1, 2) {
@@ -67,6 +68,21 @@ abstract class SirimDatabase : RoomDatabase() {
         val MIGRATION_4_5: Migration = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE sku_records ADD COLUMN gallery_paths TEXT")
+            }
+        }
+
+        val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS sku_exports (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "uri TEXT NOT NULL, " +
+                        "file_name TEXT NOT NULL, " +
+                        "record_count INTEGER NOT NULL, " +
+                        "updated_at INTEGER NOT NULL" +
+                        ")"
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_sku_exports_updated_at ON sku_exports(updated_at)")
             }
         }
     }

@@ -67,7 +67,8 @@ fun RecordFormScreen(
     onRetake: (() -> Unit)? = null,
     onReportIssue: ((ScanIssueReport) -> Unit)? = null,
     recordId: Long? = null,
-    scanDraft: ScanDraft? = null
+    scanDraft: ScanDraft? = null,
+    readOnly: Boolean = false
 ) {
     val scrollState = rememberScrollState()
 
@@ -186,7 +187,7 @@ fun RecordFormScreen(
                     }
                 },
                 actions = {
-                    if (onRetake != null) {
+                    if (!readOnly && onRetake != null) {
                         IconButton(onClick = onRetake) {
                             Icon(Icons.Default.CameraAlt, contentDescription = "Retake scan")
                         }
@@ -206,7 +207,7 @@ fun RecordFormScreen(
             if ((scanDraft != null || activeRecord?.imagePath != null)) {
                 AutoFillIndicator(
                     captureConfidence = captureConfidence,
-                    onRetake = onRetake,
+                    onRetake = if (readOnly) null else onRetake,
                     onReportIssue = onReportIssue?.let {
                         {
                             it(
@@ -256,7 +257,8 @@ fun RecordFormScreen(
                 } else {
                     null
                 },
-                confidence = fieldConfidences["sirimSerialNo"]
+                confidence = fieldConfidences["sirimSerialNo"],
+                enabled = !readOnly
             )
             formError?.let { error ->
                 Text(
@@ -271,42 +273,48 @@ fun RecordFormScreen(
                 onValueChange = { batchState.value = it },
                 label = "Batch No.",
                 supportingText = { Text("Max 200 characters") },
-                confidence = fieldConfidences["batchNo"]
+                confidence = fieldConfidences["batchNo"],
+                enabled = !readOnly
             )
             FieldInput(
                 value = brandState.value,
                 onValueChange = { brandState.value = it },
                 label = "Brand/Trademark",
                 supportingText = { Text("Max 1024 characters") },
-                confidence = fieldConfidences["brandTrademark"]
+                confidence = fieldConfidences["brandTrademark"],
+                enabled = !readOnly
             )
             FieldInput(
                 value = modelState.value,
                 onValueChange = { modelState.value = it },
                 label = "Model",
                 supportingText = { Text("Max 1500 characters") },
-                confidence = fieldConfidences["model"]
+                confidence = fieldConfidences["model"],
+                enabled = !readOnly
             )
             FieldInput(
                 value = typeState.value,
                 onValueChange = { typeState.value = it },
                 label = "Type",
                 supportingText = { Text("Max 1500 characters") },
-                confidence = fieldConfidences["type"]
+                confidence = fieldConfidences["type"],
+                enabled = !readOnly
             )
             FieldInput(
                 value = ratingState.value,
                 onValueChange = { ratingState.value = it },
                 label = "Rating",
                 supportingText = { Text("Max 600 characters") },
-                confidence = fieldConfidences["rating"]
+                confidence = fieldConfidences["rating"],
+                enabled = !readOnly
             )
             FieldInput(
                 value = sizeState.value,
                 onValueChange = { sizeState.value = it },
                 label = "Size",
                 supportingText = { Text("Max 1500 characters") },
-                confidence = fieldConfidences["size"]
+                confidence = fieldConfidences["size"],
+                enabled = !readOnly
             )
 
             if (customFields.isNotEmpty()) {
@@ -323,80 +331,85 @@ fun RecordFormScreen(
                                 )
                             }
                         },
-                        onDelete = { customFields.removeAt(index) }
+                        onDelete = { if (!readOnly) customFields.removeAt(index) },
+                        readOnly = readOnly
                     )
                 }
             }
 
-            OutlinedButton(
-                onClick = { showAddFieldDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Add Custom Field")
+            if (!readOnly) {
+                OutlinedButton(
+                    onClick = { showAddFieldDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Add Custom Field")
+                }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(
-                    onClick = {
-                        if (isSaving) return@Button
-                        val serial = serialState.value.text.trim()
-                        val batch = batchState.value.text.trim()
-                        val brand = brandState.value.text.trim()
-                        val model = modelState.value.text.trim()
-                        val type = typeState.value.text.trim()
-                        val rating = ratingState.value.text.trim()
-                        val size = sizeState.value.text.trim()
+                if (!readOnly) {
+                    Button(
+                        onClick = {
+                            if (isSaving) return@Button
+                            val serial = serialState.value.text.trim()
+                            val batch = batchState.value.text.trim()
+                            val brand = brandState.value.text.trim()
+                            val model = modelState.value.text.trim()
+                            val type = typeState.value.text.trim()
+                            val rating = ratingState.value.text.trim()
+                            val size = sizeState.value.text.trim()
 
-                        val customEntries = customFields.mapNotNull { it.toEntry() }
-                        val customJson = customEntries.takeIf { it.isNotEmpty() }?.toJson()
+                            val customEntries = customFields.mapNotNull { it.toEntry() }
+                            val customJson = customEntries.takeIf { it.isNotEmpty() }?.toJson()
 
-                        val record = activeRecord?.copy(
-                            sirimSerialNo = serial,
-                            batchNo = batch,
-                            brandTrademark = brand,
-                            model = model,
-                            type = type,
-                            rating = rating,
-                            size = size,
-                            customFields = customJson,
-                            captureConfidence = captureConfidence,
-                            imagePath = activeRecord?.imagePath ?: imagePath
-                        ) ?: SirimRecord(
-                            sirimSerialNo = serial,
-                            batchNo = batch,
-                            brandTrademark = brand,
-                            model = model,
-                            type = type,
-                            rating = rating,
-                            size = size,
-                            imagePath = imagePath,
-                            customFields = customJson,
-                            captureConfidence = captureConfidence
-                        )
+                            val record = activeRecord?.copy(
+                                sirimSerialNo = serial,
+                                batchNo = batch,
+                                brandTrademark = brand,
+                                model = model,
+                                type = type,
+                                rating = rating,
+                                size = size,
+                                customFields = customJson,
+                                captureConfidence = captureConfidence,
+                                imagePath = activeRecord?.imagePath ?: imagePath
+                            ) ?: SirimRecord(
+                                sirimSerialNo = serial,
+                                batchNo = batch,
+                                brandTrademark = brand,
+                                model = model,
+                                type = type,
+                                rating = rating,
+                                size = size,
+                                imagePath = imagePath,
+                                customFields = customJson,
+                                captureConfidence = captureConfidence
+                            )
 
-                        viewModel.createOrUpdate(record) { id ->
-                            onSaved(id)
+                            viewModel.createOrUpdate(record) { id ->
+                                onSaved(id)
+                            }
+                        },
+                        enabled = !isSaving && serialState.value.text.isNotBlank(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                    ) {
+                        if (isSaving) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Saving...")
+                        } else {
+                            Icon(Icons.Default.Save, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Save Record")
                         }
-                    },
-                    enabled = !isSaving && serialState.value.text.isNotBlank(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Saving...")
-                    } else {
-                        Icon(Icons.Default.Save, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Save Record")
                     }
                 }
 
@@ -458,7 +471,8 @@ private fun FieldInput(
     supportingText: (@Composable (() -> Unit))? = null,
     isError: Boolean = false,
     trailingIcon: (@Composable (() -> Unit))? = null,
-    confidence: Float?
+    confidence: Float?,
+    enabled: Boolean = true
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         OutlinedTextField(
@@ -468,7 +482,8 @@ private fun FieldInput(
             supportingText = supportingText,
             isError = isError,
             trailingIcon = trailingIcon,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled
         )
         FieldConfidenceIndicator(confidence)
     }
@@ -580,7 +595,8 @@ private fun AutoFillIndicator(
 private fun CustomFieldRow(
     field: CustomFieldUiState,
     onValueChange: (TextFieldValue) -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    readOnly: Boolean
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -592,10 +608,13 @@ private fun CustomFieldRow(
             onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
             label = { Text(field.name) },
-            supportingText = { Text("Max ${field.maxLength} characters") }
+            supportingText = { Text("Max ${field.maxLength} characters") },
+            enabled = !readOnly
         )
-        IconButton(onClick = onDelete, modifier = Modifier.padding(top = 8.dp)) {
-            Icon(Icons.Default.Delete, contentDescription = "Remove field")
+        if (!readOnly) {
+            IconButton(onClick = onDelete, modifier = Modifier.padding(top = 8.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = "Remove field")
+            }
         }
     }
 }

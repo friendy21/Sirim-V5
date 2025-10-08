@@ -43,6 +43,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sirim.scanner.data.ocr.BarcodeAnalyzer
 import com.sirim.scanner.data.repository.SirimRepository
+import com.sirim.scanner.data.export.ExportManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,12 +57,13 @@ fun SkuScannerScreen(
     onRecordSaved: (Long) -> Unit,
     repository: SirimRepository,
     analyzer: BarcodeAnalyzer,
-    appScope: CoroutineScope
+    appScope: CoroutineScope,
+    exportManager: ExportManager
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val viewModel: SkuScannerViewModel = viewModel(
-        factory = SkuScannerViewModel.Factory(repository, analyzer, appScope)
+        factory = SkuScannerViewModel.Factory(repository, analyzer, appScope, exportManager)
     )
 
     val captureState by viewModel.captureState.collectAsState()

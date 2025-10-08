@@ -2,6 +2,7 @@ package com.sirim.scanner.data.repository
 
 import com.sirim.scanner.data.db.SirimRecord
 import com.sirim.scanner.data.db.SkuRecord
+import com.sirim.scanner.data.db.SkuExportRecord
 import com.sirim.scanner.data.db.StorageRecord
 import kotlinx.coroutines.flow.Flow
 
@@ -9,6 +10,7 @@ interface SirimRepository {
     val sirimRecords: Flow<List<SirimRecord>>
     val skuRecords: Flow<List<SkuRecord>>
     val storageRecords: Flow<List<StorageRecord>>
+    val skuExports: Flow<List<SkuExportRecord>>
 
     val records: Flow<List<SirimRecord>>
         get() = sirimRecords
@@ -27,9 +29,12 @@ interface SirimRepository {
 
     suspend fun getRecord(id: Long): SirimRecord?
     suspend fun getSkuRecord(id: Long): SkuRecord?
+    suspend fun getAllSkuRecords(): List<SkuRecord>
 
     suspend fun findBySerial(serial: String): SirimRecord?
     suspend fun findByBarcode(barcode: String): SkuRecord?
 
     suspend fun persistImage(bytes: ByteArray, extension: String = "jpg"): String
+
+    suspend fun recordSkuExport(record: SkuExportRecord): Long
 }

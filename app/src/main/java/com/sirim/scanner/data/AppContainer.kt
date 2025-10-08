@@ -33,13 +33,15 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         SirimDatabase.MIGRATION_1_2,
         SirimDatabase.MIGRATION_2_3,
         SirimDatabase.MIGRATION_3_4,
-        SirimDatabase.MIGRATION_4_5
+        SirimDatabase.MIGRATION_4_5,
+        SirimDatabase.MIGRATION_5_6
     ).build()
 
     override val repository: SirimRepository by lazy {
         SirimRepositoryImpl(
             sirimDao = database.sirimRecordDao(),
             skuDao = database.skuRecordDao(),
+            skuExportDao = database.skuExportDao(),
             context = context.applicationContext
         )
     }

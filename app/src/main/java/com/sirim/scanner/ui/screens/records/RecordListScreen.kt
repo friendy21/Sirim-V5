@@ -75,7 +75,8 @@ fun RecordListScreen(
     onBack: () -> Unit,
     onNavigateToExport: () -> Unit,
     isAuthenticated: Boolean,
-    onRequireAuthentication: (() -> Unit) -> Unit
+    onRequireAuthentication: (() -> Unit) -> Unit,
+    readOnly: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val records = uiState.records
@@ -90,8 +91,10 @@ fun RecordListScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onNavigateToExport) {
-                        Icon(Icons.Default.Download, contentDescription = "Export")
+                    if (!readOnly) {
+                        IconButton(onClick = onNavigateToExport) {
+                            Icon(Icons.Default.Download, contentDescription = "Export")
+                        }
                     }
                 }
             )
@@ -104,19 +107,21 @@ fun RecordListScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Button(
-                onClick = {
-                    if (isAuthenticated) onAdd() else onRequireAuthentication(onAdd)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Add Record") }
+            if (!readOnly) {
+                Button(
+                    onClick = {
+                        if (isAuthenticated) onAdd() else onRequireAuthentication(onAdd)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Add Record") }
 
-            if (!isAuthenticated) {
-                Text(
-                    text = "Admin login is required to add, edit, or delete records.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (!isAuthenticated) {
+                    Text(
+                        text = "Admin login is required to add, edit, or delete records.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             OutlinedTextField(
@@ -175,29 +180,36 @@ fun RecordListScreen(
                     style = MaterialTheme.typography.bodyMedium
                 )
             } else {
+                val handleEdit: (SirimRecord) -> Unit = { record ->
+                    if (readOnly || isAuthenticated) {
+                        onEdit(record)
+                    } else {
+                        onRequireAuthentication { onEdit(record) }
+                    }
+                }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(records, key = { it.id }) { record ->
-                            RecordListItem(
-                                record = record,
-                                onEdit = {
-                                    if (isAuthenticated) {
-                                        onEdit(record)
-                                    } else {
-                                        onRequireAuthentication { onEdit(record) }
-                                    }
-                                },
-                                onDelete = {
-                                    if (isAuthenticated) {
-                                        viewModel.delete(record)
-                                    } else {
-                                        onRequireAuthentication { viewModel.delete(record) }
-                                    }
-                                },
-                                isAuthenticated = isAuthenticated
-                            )
+                        val deleteAction = if (readOnly) {
+                            null
+                        } else {
+                            {
+                                if (isAuthenticated) {
+                                    viewModel.delete(record)
+                                } else {
+                                    onRequireAuthentication { viewModel.delete(record) }
+                                }
+                            }
+                        }
+                        RecordListItem(
+                            record = record,
+                            onClick = { handleEdit(record) },
+                            onDelete = deleteAction,
+                            isAuthenticated = isAuthenticated,
+                            readOnly = readOnly
+                        )
                     }
                 }
             }
@@ -270,14 +282,15 @@ private fun FilterSection(
 @Composable
 private fun RecordListItem(
     record: SirimRecord,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    isAuthenticated: Boolean
+    onClick: () -> Unit,
+    onDelete: (() -> Unit)?,
+    isAuthenticated: Boolean,
+    readOnly: Boolean
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onEdit)
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
@@ -291,16 +304,18 @@ private fun RecordListItem(
                 Text(text = record.brandTrademark, style = MaterialTheme.typography.bodyMedium)
                 Text(text = record.model, style = MaterialTheme.typography.bodySmall)
             }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = "Delete",
-                    tint = if (isAuthenticated) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
+            if (!readOnly && onDelete != null) {
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = if (isAuthenticated) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
             }
         }
     }

@@ -1,33 +1,31 @@
 package com.sirim.scanner.data.db
 
-// No change needed here. Your sealed class design is good.
 sealed class StorageRecord {
     abstract val id: Long
     abstract val createdAt: Long
+    abstract val title: String
+    abstract val description: String
 
-    data class Sirim(val record: SirimRecord) : StorageRecord() {
-        override val id: Long = record.id
-        override val createdAt: Long = record.createdAt
+    data class SirimDatabase(
+        val totalRecords: Int,
+        val lastUpdated: Long
+    ) : StorageRecord() {
+        override val id: Long = 1
+        override val createdAt: Long = lastUpdated
+        override val title: String = "SIRIM Records"
+        override val description: String = if (totalRecords == 1) {
+            "1 record stored"
+        } else {
+            "$totalRecords records stored"
+        }
     }
 
-    data class Sku(val record: SkuRecord) : StorageRecord() {
-        override val id: Long = record.id
-        override val createdAt: Long = record.createdAt
+    data class SkuExport(
+        val export: SkuExportRecord
+    ) : StorageRecord() {
+        override val id: Long = export.id + 10_000
+        override val createdAt: Long = export.updatedAt
+        override val title: String = export.fileName
+        override val description: String = "${export.recordCount} SKU captures"
     }
-}
-
-// THIS IS THE FIX:
-// This function now correctly converts a List of SirimRecord objects
-// into a List of StorageRecord.Sirim objects.
-fun List<SirimRecord>.asStorageRecords(): List<StorageRecord> {
-    // For each 'SirimRecord' in the list, wrap it in a 'StorageRecord.Sirim'
-    return map { record -> StorageRecord.Sirim(record) }
-}
-
-// THIS IS THE SECOND FIX:
-// This function correctly converts a List of SkuRecord objects
-// into a List of StorageRecord.Sku objects.
-fun List<SkuRecord>.asStorageRecordsFromSku(): List<StorageRecord> {
-    // For each 'SkuRecord' in the list, wrap it in a 'StorageRecord.Sku'
-    return map { record -> StorageRecord.Sku(record) }
 }
