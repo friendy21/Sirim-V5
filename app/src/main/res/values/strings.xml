@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">SIRIM Scanner</string>
+    <string name="login_error">Invalid username or password</string>
+    <string name="camera_permission_required">Camera permission required</string>
+    <string name="export_success">Export completed</string>
+    <string name="export_failure">Export failed</string>
+</resources>
