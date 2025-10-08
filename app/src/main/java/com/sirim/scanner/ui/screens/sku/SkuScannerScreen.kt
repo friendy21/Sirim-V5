@@ -2,14 +2,19 @@ package com.sirim.scanner.ui.screens.sku
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -20,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
@@ -31,6 +38,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sirim.scanner.data.ocr.BarcodeAnalyzer
 import com.sirim.scanner.data.repository.SirimRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,6 +61,7 @@ fun SkuScannerScreen(
     val captureState by viewModel.captureState.collectAsState()
     val lastDetection by viewModel.lastDetection.collectAsState()
     val databaseInfo by viewModel.databaseInfo.collectAsState()
+    val captureAction = remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val hasCameraPermission = remember {
         mutableStateOf(
@@ -99,7 +111,8 @@ fun SkuScannerScreen(
                         .weight(1f),
                     lifecycleOwner = lifecycleOwner,
                     viewModel = viewModel,
-                    captureState = captureState
+                    captureState = captureState,
+                    captureAction = captureAction
                 )
             } else {
                 Text(
@@ -111,8 +124,8 @@ fun SkuScannerScreen(
 
             // Capture Button
             Button(
-                onClick = { viewModel.captureBarcode() },
-                enabled = captureState is CaptureState.Ready,
+                onClick = { captureAction.value?.invoke() },
+                enabled = captureState is CaptureState.Ready && captureAction.value != null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
@@ -125,9 +138,10 @@ fun SkuScannerScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     when (captureState) {
-                        is CaptureState.Processing -> "Processing..."
+                        is CaptureState.Processing -> "Saving..."
                         is CaptureState.Saved -> "Saved!"
                         is CaptureState.Error -> "Try Again"
+                        is CaptureState.Captured -> "Review above"
                         else -> "Capture Barcode"
                     },
                     style = MaterialTheme.typography.titleMedium
@@ -148,6 +162,7 @@ private fun SkuStatusCard(
             containerColor = when (state) {
                 is CaptureState.Saved -> MaterialTheme.colorScheme.primaryContainer
                 is CaptureState.Error -> MaterialTheme.colorScheme.errorContainer
+                is CaptureState.Captured -> MaterialTheme.colorScheme.secondaryContainer
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
         )
@@ -167,12 +182,14 @@ private fun SkuStatusCard(
                         is CaptureState.Saved -> Icons.Rounded.CheckCircle
                         is CaptureState.Error -> Icons.Rounded.Error
                         is CaptureState.Processing -> Icons.Rounded.HourglassEmpty
+                        is CaptureState.Captured -> Icons.Rounded.PhotoCamera
                         else -> Icons.Rounded.QrCodeScanner
                     },
                     contentDescription = null,
                     tint = when (state) {
                         is CaptureState.Saved -> MaterialTheme.colorScheme.primary
                         is CaptureState.Error -> MaterialTheme.colorScheme.error
+                        is CaptureState.Captured -> MaterialTheme.colorScheme.secondary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier.size(32.dp)
@@ -273,9 +290,11 @@ private fun SkuCameraPreview(
     modifier: Modifier,
     lifecycleOwner: androidx.lifecycle.LifecycleOwner,
     viewModel: SkuScannerViewModel,
-    captureState: CaptureState
+    captureState: CaptureState,
+    captureAction: MutableState<(() -> Unit)?>
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val previewView = remember {
         PreviewView(context).apply {
@@ -284,11 +303,17 @@ private fun SkuCameraPreview(
     }
     val camera = remember { mutableStateOf<Camera?>(null) }
     val flashEnabled = rememberSaveable { mutableStateOf(false) }
+    val imageCapture = remember {
+        ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+    }
 
     DisposableEffect(lifecycleOwner) {
         val executor = ContextCompat.getMainExecutor(context)
         val listener = Runnable {
             val cameraProvider = cameraProviderFuture.get()
+            cameraProvider.unbindAll()
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
@@ -304,12 +329,14 @@ private fun SkuCameraPreview(
                 lifecycleOwner,
                 CameraSelector.DEFAULT_BACK_CAMERA,
                 preview,
-                analysis
+                analysis,
+                imageCapture
             )
             camera.value = boundCamera
         }
         cameraProviderFuture.addListener(listener, executor)
         onDispose {
+            captureAction.value = null
             runCatching { cameraProviderFuture.get().unbindAll() }
         }
     }
@@ -318,26 +345,117 @@ private fun SkuCameraPreview(
         camera.value?.cameraControl?.enableTorch(flashEnabled.value)
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(modifier = Modifier.weight(1f)) {
-            AndroidView(
-                factory = { previewView },
-                modifier = Modifier.fillMaxSize()
-            )
-            SkuScannerOverlay(state = captureState)
+    LaunchedEffect(captureState, imageCapture) {
+        captureAction.value = if (captureState is CaptureState.Ready) {
+            {
+                captureAction.value = null
+                val executor = ContextCompat.getMainExecutor(context)
+                val photoFile = File.createTempFile("sku_capture_", ".jpg", context.cacheDir)
+                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                imageCapture.takePicture(
+                    outputOptions,
+                    executor,
+                    object : ImageCapture.OnImageSavedCallback {
+                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                            scope.launch(Dispatchers.IO) {
+                                val bytes = runCatching { photoFile.readBytes() }.getOrNull()
+                                photoFile.delete()
+                                if (bytes != null) {
+                                    withContext(Dispatchers.Main) {
+                                        viewModel.onImageCaptured(bytes)
+                                    }
+                                } else {
+                                    withContext(Dispatchers.Main) {
+                                        viewModel.onCaptureError("Unable to read captured image")
+                                    }
+                                }
+                            }
+                        }
 
-            // Flash Toggle
-            IconButton(
-                onClick = { flashEnabled.value = !flashEnabled.value },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-            ) {
-                Icon(
-                    imageVector = if (flashEnabled.value) Icons.Rounded.Bolt else Icons.Rounded.FlashOff,
-                    contentDescription = if (flashEnabled.value) "Disable flash" else "Enable flash",
-                    tint = if (flashEnabled.value) Color.Yellow else Color.White
+                        override fun onError(exception: ImageCaptureException) {
+                            photoFile.delete()
+                            viewModel.onCaptureError("Capture failed: ${exception.message}")
+                        }
+                    }
                 )
+            }
+        } else {
+            null
+        }
+    }
+
+    val capturedState = captureState as? CaptureState.Captured
+    val previewBitmap = remember(capturedState) {
+        capturedState?.imageBytes?.let { bytes ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+    }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (capturedState != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                if (previewBitmap != null) {
+                    Image(
+                        bitmap = previewBitmap.asImageBitmap(),
+                        contentDescription = "Captured preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Preview unavailable")
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { viewModel.retakeCapture() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Retake")
+                }
+                Button(
+                    onClick = { viewModel.confirmCapture() },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Rounded.Check, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Use photo")
+                }
+            }
+        } else {
+            Box(modifier = Modifier.weight(1f)) {
+                AndroidView(
+                    factory = { previewView },
+                    modifier = Modifier.fillMaxSize()
+                )
+                SkuScannerOverlay(state = captureState)
+
+                IconButton(
+                    onClick = { flashEnabled.value = !flashEnabled.value },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                ) {
+                    Icon(
+                        imageVector = if (flashEnabled.value) Icons.Rounded.Bolt else Icons.Rounded.FlashOff,
+                        contentDescription = if (flashEnabled.value) "Disable flash" else "Enable flash",
+                        tint = if (flashEnabled.value) Color.Yellow else Color.White
+                    )
+                }
             }
         }
     }
@@ -355,6 +473,7 @@ private fun SkuScannerOverlay(state: CaptureState) {
             is CaptureState.Saved -> Color(0xFF4CAF50)
             is CaptureState.Error -> Color(0xFFF44336)
             is CaptureState.Processing -> Color(0xFFFFC107)
+            is CaptureState.Captured -> Color(0xFF3F51B5)
             is CaptureState.Ready -> Color(0xFF2196F3)
             else -> Color.White.copy(alpha = 0.7f)
         }

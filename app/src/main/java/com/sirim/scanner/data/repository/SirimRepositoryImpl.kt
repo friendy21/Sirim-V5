@@ -9,6 +9,7 @@ import com.sirim.scanner.data.db.SkuRecordDao
 import com.sirim.scanner.data.db.StorageRecord
 import com.sirim.scanner.data.db.asStorageRecords
 import com.sirim.scanner.data.db.asStorageRecordsFromSku // <-- IMPORTANT: Make sure this import is present!
+import com.sirim.scanner.data.db.toGalleryList
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.flow.Flow
@@ -66,6 +67,9 @@ class SirimRepositoryImpl(
 
     override suspend fun deleteSku(record: SkuRecord) {
         record.imagePath?.let { path ->
+            runCatching { File(path).takeIf(File::exists)?.delete() }
+        }
+        record.galleryPaths.toGalleryList().forEach { path ->
             runCatching { File(path).takeIf(File::exists)?.delete() }
         }
         skuDao.delete(record)

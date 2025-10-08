@@ -10,7 +10,11 @@ import com.sirim.scanner.data.ocr.BarcodeDetection
 import com.sirim.scanner.data.repository.SirimRepository
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class SkuScannerViewModel private constructor(
@@ -37,6 +41,10 @@ class SkuScannerViewModel private constructor(
     }
 
     fun analyzeFrame(imageProxy: ImageProxy) {
+        if (_captureState.value is CaptureState.Captured || _captureState.value is CaptureState.Processing) {
+            imageProxy.close()
+            return
+        }
         if (!processing.compareAndSet(false, true)) {
             imageProxy.close()
             return
@@ -51,10 +59,13 @@ class SkuScannerViewModel private constructor(
                         value = detection.value,
                         format = detection.format
                     )
-                    _captureState.value = CaptureState.Ready("Barcode detected - Tap capture to save")
+                    if (_captureState.value !is CaptureState.Captured) {
+                        _captureState.value = CaptureState.Ready("Barcode detected - Tap capture to save")
+                    }
                 } else {
-                    if (_captureState.value !is CaptureState.Processing && 
-                        _captureState.value !is CaptureState.Saved) {
+                    if (_captureState.value !is CaptureState.Processing &&
+                        _captureState.value !is CaptureState.Saved &&
+                        _captureState.value !is CaptureState.Captured) {
                         _captureState.value = CaptureState.Idle
                     }
                 }
@@ -67,9 +78,44 @@ class SkuScannerViewModel private constructor(
         }
     }
 
-    fun captureBarcode() {
+    fun onImageCaptured(bytes: ByteArray) {
         val detection = pendingDetection ?: run {
             _captureState.value = CaptureState.Error("No barcode detected")
+            return
+        }
+        if (bytes.isEmpty()) {
+            _captureState.value = CaptureState.Error("Captured image is empty")
+            return
+        }
+        _captureState.value = CaptureState.Captured(
+            msg = "Review captured image",
+            detection = BarcodeDetectionInfo(
+                value = detection.value,
+                format = detection.format
+            ),
+            imageBytes = bytes
+        )
+    }
+
+    fun onCaptureError(message: String) {
+        _captureState.value = CaptureState.Error(message)
+    }
+
+    fun retakeCapture() {
+        _captureState.value = if (pendingDetection != null) {
+            CaptureState.Ready("Barcode detected - Tap capture to save")
+        } else {
+            CaptureState.Idle
+        }
+    }
+
+    fun confirmCapture() {
+        val detection = pendingDetection ?: run {
+            _captureState.value = CaptureState.Error("No barcode detected")
+            return
+        }
+        val captured = _captureState.value as? CaptureState.Captured ?: run {
+            _captureState.value = CaptureState.Error("No captured image to save")
             return
         }
 
@@ -83,16 +129,22 @@ class SkuScannerViewModel private constructor(
                     return@launch
                 }
 
-                // Check if barcode already exists
+                val imagePath = repository.persistImage(captured.imageBytes)
+
                 val existing = repository.findByBarcode(normalized)
-                
+
                 val (recordId, isNew) = if (existing != null) {
-                    // Use existing database
-                    existing.id to false
+                    val updated = existing.copy(
+                        barcode = normalized,
+                        imagePath = imagePath,
+                        needsSync = true
+                    )
+                    repository.upsertSku(updated)
+                    updated.id to false
                 } else {
-                    // Create new database
                     val record = SkuRecord(
                         barcode = normalized,
+                        imagePath = imagePath,
                         createdAt = System.currentTimeMillis()
                     )
                     val id = repository.upsertSku(record)
@@ -106,19 +158,16 @@ class SkuScannerViewModel private constructor(
                         "Barcode found in existing database: $normalized"
                     },
                     recordId = recordId,
-                    isNewRecord = isNew
+                    isNewRecord = isNew,
+                    imagePath = imagePath
                 )
 
-
-                // Reload database info
                 loadDatabaseInfo()
 
-                // Reset after 2 seconds
-                kotlinx.coroutines.delay(2000)
+                delay(2000)
                 _captureState.value = CaptureState.Idle
                 _lastDetection.value = null
                 pendingDetection = null
-
             } catch (error: Exception) {
                 _captureState.value = CaptureState.Error("Failed to save: ${error.message}")
             }
@@ -154,10 +203,16 @@ sealed class CaptureState(val message: String) {
     data object Idle : CaptureState("Align barcode within the guide")
     data class Ready(val msg: String) : CaptureState(msg)
     data class Processing(val msg: String) : CaptureState(msg)
+    data class Captured(
+        val msg: String,
+        val detection: BarcodeDetectionInfo,
+        val imageBytes: ByteArray
+    ) : CaptureState(msg)
     data class Saved(
         val msg: String,
         val recordId: Long?,
-        val isNewRecord: Boolean
+        val isNewRecord: Boolean,
+        val imagePath: String?
     ) : CaptureState(msg)
     data class Error(val msg: String) : CaptureState(msg)
 }
