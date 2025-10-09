@@ -1,7 +1,9 @@
 package com.sirim.scanner.data.repository
 
+import android.content.ContentResolver
 import android.content.Context
 import android.database.sqlite.SQLiteConstraintException
+import android.net.Uri
 import com.sirim.scanner.data.db.SirimRecord
 import com.sirim.scanner.data.db.SirimRecordDao
 import com.sirim.scanner.data.db.SkuRecord
@@ -80,6 +82,21 @@ class SirimRepositoryImpl(
         skuDao.delete(record)
     }
 
+    override suspend fun clearSirim() = withContext(Dispatchers.IO) {
+        val records = sirimDao.getAllRecordsOnce()
+        records.forEach { record ->
+            record.imagePath?.let { path ->
+                runCatching { File(path).takeIf(File::exists)?.delete() }
+            }
+        }
+        sirimDao.clearAll()
+    }
+
+    override suspend fun deleteSkuExport(record: SkuExportRecord) = withContext(Dispatchers.IO) {
+        deleteSkuExportFile(record)
+        skuExportDao.delete(record)
+    }
+
     override suspend fun getRecord(id: Long): SirimRecord? = sirimDao.getRecordById(id)
 
     override suspend fun getSkuRecord(id: Long): SkuRecord? = skuDao.getRecordById(id)
@@ -103,4 +120,30 @@ class SirimRepositoryImpl(
     }
 
     override suspend fun recordSkuExport(record: SkuExportRecord): Long = skuExportDao.upsert(record)
+
+    private fun deleteSkuExportFile(record: SkuExportRecord) {
+        val uri = Uri.parse(record.uri)
+        val file = when (uri.scheme) {
+            ContentResolver.SCHEME_CONTENT -> {
+                val segments = uri.pathSegments
+                if (segments.isEmpty()) {
+                    null
+                } else {
+                    val relativePath = segments.drop(1).joinToString(File.separator)
+                    val baseDir = context.getExternalFilesDir(null)
+                    if (baseDir != null && relativePath.isNotEmpty()) {
+                        File(baseDir, relativePath)
+                    } else {
+                        null
+                    }
+                }
+            }
+
+            ContentResolver.SCHEME_FILE -> uri.path?.let(::File)
+
+            else -> uri.path?.let(::File) ?: File(record.uri)
+        }
+
+        file?.takeIf(File::exists)?.let { runCatching { it.delete() } }
+    }
 }

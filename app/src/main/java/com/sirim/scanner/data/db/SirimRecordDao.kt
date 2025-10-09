@@ -35,4 +35,7 @@ interface SirimRecordDao {
 
     @Query("DELETE FROM sirim_records")
     suspend fun clearAll()
+
+    @Query("SELECT * FROM sirim_records ORDER BY created_at DESC")
+    suspend fun getAllRecordsOnce(): List<SirimRecord>
 }

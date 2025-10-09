@@ -1,6 +1,7 @@
 package com.sirim.scanner.data.db
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -13,4 +14,7 @@ interface SkuExportDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(record: SkuExportRecord): Long
+
+    @Delete
+    suspend fun delete(record: SkuExportRecord)
 }

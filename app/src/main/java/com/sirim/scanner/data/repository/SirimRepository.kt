@@ -27,6 +27,9 @@ interface SirimRepository {
     suspend fun delete(record: SirimRecord)
     suspend fun deleteSku(record: SkuRecord)
 
+    suspend fun clearSirim()
+    suspend fun deleteSkuExport(record: SkuExportRecord)
+
     suspend fun getRecord(id: Long): SirimRecord?
     suspend fun getSkuRecord(id: Long): SkuRecord?
     suspend fun getAllSkuRecords(): List<SkuRecord>
