@@ -30,10 +30,10 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
-    suspend fun setAuthentication(timestampMillis: Long) {
+    suspend fun setAuthentication() {
         context.dataStore.edit { prefs ->
             prefs[Keys.IS_AUTHENTICATED] = true
-            prefs[Keys.AUTH_TIMESTAMP] = timestampMillis
+            prefs[Keys.AUTH_TIMESTAMP] = currentSessionMarker()
             prefs[Keys.AUTH_EXPIRY_DURATION] = DEFAULT_AUTH_EXPIRY_MILLIS
         }
     }
@@ -46,10 +46,10 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
-    suspend fun refreshAuthentication(timestampMillis: Long) {
+    suspend fun refreshAuthentication() {
         context.dataStore.edit { prefs ->
             if (prefs[Keys.IS_AUTHENTICATED] == true) {
-                prefs[Keys.AUTH_TIMESTAMP] = timestampMillis
+                prefs[Keys.AUTH_TIMESTAMP] = currentSessionMarker()
             }
         }
     }
@@ -59,7 +59,8 @@ class PreferencesManager(private val context: Context) {
             ?: StartupPage.AskEveryTime
         val authenticated = this[Keys.IS_AUTHENTICATED] ?: false
         val timestamp = this[Keys.AUTH_TIMESTAMP] ?: 0L
-        val expiryDuration = this[Keys.AUTH_EXPIRY_DURATION] ?: DEFAULT_AUTH_EXPIRY_MILLIS
+        val expiryDuration = this[Keys.AUTH_EXPIRY_DURATION]?.takeIf { it <= 0L }
+            ?: DEFAULT_AUTH_EXPIRY_MILLIS
         return UserPreferences(
             startupPage = startupPage,
             isAuthenticated = authenticated,
@@ -76,6 +77,10 @@ class PreferencesManager(private val context: Context) {
     }
 
     companion object {
-        const val DEFAULT_AUTH_EXPIRY_MILLIS: Long = 60 * 60 * 1000 // 1 hour
+        const val DEFAULT_AUTH_EXPIRY_MILLIS: Long = 0L
+    }
+
+    private fun currentSessionMarker(): Long {
+        return android.os.Process.myPid().toLong()
     }
 }

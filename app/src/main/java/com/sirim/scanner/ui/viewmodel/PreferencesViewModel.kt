@@ -45,7 +45,7 @@ class PreferencesViewModel private constructor(
 
         if (username.equals(ADMIN_USERNAME, ignoreCase = true) && hashedInput == storedHash) {
             viewModelScope.launch {
-                manager.setAuthentication(System.currentTimeMillis())
+                manager.setAuthentication()
                 _authError.value = null
             }
         } else {
