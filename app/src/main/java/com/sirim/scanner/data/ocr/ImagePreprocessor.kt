@@ -41,6 +41,10 @@ object ImagePreprocessor {
 
     private val opencvInitialised = AtomicBoolean(false)
     private const val MAX_DIMENSION = 960
+    private const val ROI_VERTICAL_PADDING_FRACTION = 0.35
+    private const val ROI_MIN_PADDING_PX = 24
+    private const val ROI_MIN_EFFECTIVE_PADDING_PX = 12
+    private const val ROI_TIGHT_HEIGHT_FRACTION = 0.85
 
     fun preprocess(imageProxy: ImageProxy): PreprocessedImage? {
         val startNs = SystemClock.elapsedRealtimeNanos()
@@ -95,7 +99,8 @@ object ImagePreprocessor {
             mats += deskewed
         }
         val roi = detectRoi(deskewed)
-        val finalMat = if (roi != null) Mat(deskewed, roi) else deskewed
+        val adjustedRoi = roi?.let { adjustRoiForPadding(it, deskewed.cols(), deskewed.rows()) }
+        val finalMat = if (adjustedRoi != null) Mat(deskewed, adjustedRoi) else deskewed
         if (finalMat !== deskewed) {
             mats += finalMat
         }
@@ -106,7 +111,7 @@ object ImagePreprocessor {
         val enhanced = Bitmap.createBitmap(rgbaFinal.cols(), rgbaFinal.rows(), Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(rgbaFinal, enhanced)
 
-        val region = roi?.let { Rect(it.x, it.y, it.x + it.width, it.y + it.height) }
+        val region = adjustedRoi?.let { Rect(it.x, it.y, it.x + it.width, it.y + it.height) }
 
         mats.forEach(Mat::release)
 
@@ -174,6 +179,33 @@ object ImagePreprocessor {
         largest.release()
         val minArea = source.width() * source.height() * 0.1
         return if (rect.width * rect.height < minArea) null else rect
+    }
+
+    private fun adjustRoiForPadding(rect: CvRect, imageWidth: Int, imageHeight: Int): CvRect? {
+        val requestedPadding = max((rect.height * ROI_VERTICAL_PADDING_FRACTION).roundToInt(), ROI_MIN_PADDING_PX)
+        val rectBottom = rect.y + rect.height
+        val paddedBottom = (rectBottom + requestedPadding).coerceAtMost(imageHeight)
+        val effectivePadding = paddedBottom - rectBottom
+        val paddedHeight = paddedBottom - rect.y
+
+        val isTight = rect.height < (imageHeight * ROI_TIGHT_HEIGHT_FRACTION)
+        if (effectivePadding < ROI_MIN_EFFECTIVE_PADDING_PX && isTight) {
+            return null
+        }
+
+        val paddedWidth = rect.width.coerceAtMost(imageWidth - rect.x).coerceAtLeast(1)
+        val boundedHeight = paddedHeight.coerceAtMost(imageHeight - rect.y).coerceAtLeast(1)
+
+        if (paddedWidth == rect.width && boundedHeight == rect.height) {
+            return rect
+        }
+
+        return CvRect(
+            rect.x.coerceAtLeast(0),
+            rect.y.coerceAtLeast(0),
+            paddedWidth,
+            boundedHeight
+        )
     }
 }
 
