@@ -54,6 +54,11 @@ class ScannerViewModel private constructor(
     private val _lastSavedDraft = MutableStateFlow<ScanDraft?>(null)
     val lastSavedDraft: StateFlow<ScanDraft?> = _lastSavedDraft.asStateFlow()
 
+    private val _duplicateScanState = MutableStateFlow<DuplicateScanState?>(null)
+    val duplicateScanState: StateFlow<DuplicateScanState?> = _duplicateScanState.asStateFlow()
+
+    private val duplicateCandidate = MutableStateFlow<DuplicateCandidate?>(null)
+
     private val _batchMode = MutableStateFlow(false)
     private val _batchQueue = MutableStateFlow<List<PendingRecord>>(emptyList())
     private val batchMutex = Mutex()
@@ -287,7 +292,13 @@ class ScannerViewModel private constructor(
         appScope.launch {
             val duplicate = repository.findBySerial(pending.serial)
             if (duplicate != null) {
-                _status.value = _status.value.copy(state = ScanState.Duplicate, message = "Duplicate serial detected: ${pending.serial}")
+                duplicateCandidate.value = DuplicateCandidate(pending, duplicate)
+                _duplicateScanState.value = DuplicateScanState(serial = pending.serial)
+                _status.value = _status.value.copy(
+                    state = ScanState.Duplicate,
+                    message = "Duplicate serial detected: ${pending.serial}",
+                    confidence = pending.captureConfidence
+                )
                 return@launch
             }
             if (_batchMode.value) {
@@ -327,6 +338,46 @@ class ScannerViewModel private constructor(
         _lastSavedDraft.value = null
     }
 
+    fun keepDuplicate() {
+        val candidate = duplicateCandidate.value ?: return
+        appScope.launch {
+            try {
+                val imagePath = candidate.pending.imageBytes?.let { repository.persistImage(it) }
+                val record = candidate.pending.toRecord(
+                    imagePath = imagePath,
+                    duplicate = true,
+                    base = candidate.existing
+                )
+                val id = repository.markDuplicate(record)
+                _lastSavedDraft.value = candidate.pending.toDraft(id, imagePath)
+                _status.value = _status.value.copy(
+                    state = ScanState.Persisted,
+                    message = "Duplicate saved (${candidate.pending.serial})",
+                    confidence = candidate.pending.captureConfidence
+                )
+                clearDuplicateCache()
+            } catch (error: Exception) {
+                _status.value = ScanStatus(
+                    state = ScanState.Error,
+                    message = "Failed to save duplicate: ${error.message ?: "Unknown error"}",
+                    confidence = candidate.pending.captureConfidence
+                )
+            }
+        }
+    }
+
+    fun discardDuplicate() {
+        val candidate = duplicateCandidate.value ?: return
+        val serial = candidate.pending.serial
+        val confidence = candidate.pending.captureConfidence
+        clearDuplicateCache()
+        _status.value = _status.value.copy(
+            state = ScanState.Idle,
+            message = "Duplicate discarded ($serial)",
+            confidence = confidence
+        )
+    }
+
     companion object {
         fun Factory(
             repository: SirimRepository,
@@ -346,6 +397,11 @@ class ScannerViewModel private constructor(
         val updated = _batchQueue.value + pending
         _batchQueue.value = updated
         updated.size
+    }
+
+    private fun clearDuplicateCache() {
+        duplicateCandidate.value = null
+        _duplicateScanState.value = null
     }
 
     private fun recycleResultBitmap(result: OcrResult) {
@@ -390,6 +446,10 @@ data class BatchQueueItem(
     val confidence: Float
 )
 
+data class DuplicateScanState(
+    val serial: String
+)
+
 private data class PendingRecord(
     val serial: String,
     val fields: Map<String, FieldConfidence>,
@@ -397,20 +457,32 @@ private data class PendingRecord(
     val timestamp: Long,
     val captureConfidence: Float
 ) {
-    fun toRecord(imagePath: String?): SirimRecord = SirimRecord(
-        sirimSerialNo = fields["sirimSerialNo"]?.value.orEmpty(),
-        batchNo = fields["batchNo"]?.value.orEmpty(),
-        brandTrademark = fields["brandTrademark"]?.value.orEmpty(),
-        model = fields["model"]?.value.orEmpty(),
-        type = fields["type"]?.value.orEmpty(),
-        rating = fields["rating"]?.value.orEmpty(),
-        size = fields["size"]?.value.orEmpty(),
-        imagePath = imagePath,
-        customFields = null,
-        captureConfidence = captureConfidence,
-        createdAt = timestamp,
-        isVerified = false
-    )
+    fun toRecord(
+        imagePath: String?,
+        duplicate: Boolean = false,
+        base: SirimRecord? = null
+    ): SirimRecord {
+        val resolvedImagePath = imagePath ?: base?.imagePath
+        return SirimRecord(
+            id = base?.id ?: 0,
+            sirimSerialNo = fields["sirimSerialNo"]?.value.orEmpty(),
+            batchNo = fields["batchNo"]?.value.orEmpty(),
+            brandTrademark = fields["brandTrademark"]?.value.orEmpty(),
+            model = fields["model"]?.value.orEmpty(),
+            type = fields["type"]?.value.orEmpty(),
+            rating = fields["rating"]?.value.orEmpty(),
+            size = fields["size"]?.value.orEmpty(),
+            imagePath = resolvedImagePath,
+            customFields = base?.customFields,
+            captureConfidence = captureConfidence,
+            createdAt = timestamp,
+            isVerified = base?.isVerified ?: false,
+            isDuplicate = duplicate || base?.isDuplicate == true,
+            needsSync = true,
+            serverId = base?.serverId,
+            lastSynced = base?.lastSynced
+        )
+    }
 
     fun toDraft(recordId: Long, imagePath: String?): ScanDraft {
         val values = LinkedHashMap<String, String>()
@@ -428,4 +500,9 @@ private data class PendingRecord(
         )
     }
 }
+
+private data class DuplicateCandidate(
+    val pending: PendingRecord,
+    val existing: SirimRecord
+)
 

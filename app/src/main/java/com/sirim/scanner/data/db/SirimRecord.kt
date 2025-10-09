@@ -42,6 +42,8 @@ data class SirimRecord(
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "is_verified")
     val isVerified: Boolean = false,
+    @ColumnInfo(name = "is_duplicate")
+    val isDuplicate: Boolean = false,
     @ColumnInfo(name = "needs_sync")
     val needsSync: Boolean = true,
     @ColumnInfo(name = "server_id")

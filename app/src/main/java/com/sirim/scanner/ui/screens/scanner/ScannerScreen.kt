@@ -113,6 +113,7 @@ fun ScannerScreen(
     val lastDraft by viewModel.lastSavedDraft.collectAsState()
     val batchUiState by viewModel.batchUiState.collectAsState()
     val ocrDebugInfo by viewModel.ocrDebugInfo.collectAsState()
+    val duplicateScanState by viewModel.duplicateScanState.collectAsState()
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -152,14 +153,6 @@ fun ScannerScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val showDuplicateDialog = rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(status.state) {
-        if (status.state == ScanState.Duplicate) {
-            showDuplicateDialog.value = true
-        }
-    }
-
     LaunchedEffect(lastDraft) {
         lastDraft?.let {
             onRecordSaved(it)
@@ -247,14 +240,23 @@ fun ScannerScreen(
         }
     }
 
-    if (showDuplicateDialog.value) {
+    duplicateScanState?.let { duplicate ->
         AlertDialog(
-            onDismissRequest = { showDuplicateDialog.value = false },
+            onDismissRequest = { viewModel.discardDuplicate() },
             title = { Text("Duplicate Serial Detected") },
-            text = { Text("This serial number already exists in the database. Review before saving again.") },
+            text = {
+                Text(
+                    "Serial ${duplicate.serial} already exists. Keep to save this scan as a duplicate or discard to ignore it."
+                )
+            },
             confirmButton = {
-                TextButton(onClick = { showDuplicateDialog.value = false }) {
-                    Text("OK")
+                TextButton(onClick = { viewModel.keepDuplicate() }) {
+                    Text("Keep")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.discardDuplicate() }) {
+                    Text("Discard")
                 }
             }
         )
