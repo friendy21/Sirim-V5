@@ -121,6 +121,8 @@ class SirimRepositoryImpl(
 
     override suspend fun recordSkuExport(record: SkuExportRecord): Long = skuExportDao.upsert(record)
 
+    override suspend fun markDuplicate(record: SirimRecord): Long = upsert(record.copy(isDuplicate = true))
+
     private fun deleteSkuExportFile(record: SkuExportRecord) {
         val uri = Uri.parse(record.uri)
         val file = when (uri.scheme) {
