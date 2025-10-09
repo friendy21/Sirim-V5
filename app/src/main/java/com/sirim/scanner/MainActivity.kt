@@ -97,10 +97,13 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
     var showAuthDialog by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    fun requestAuthentication(afterAuth: () -> Unit) {
-        if (isSessionValid) {
+    fun requestAuthentication(afterAuth: () -> Unit, forcePrompt: Boolean = false) {
+        if (!forcePrompt && isSessionValid) {
             afterAuth()
         } else {
+            if (forcePrompt && isSessionValid) {
+                preferencesViewModel.logout()
+            }
             pendingAction = afterAuth
             showAuthDialog = true
         }
@@ -205,8 +208,9 @@ private fun NavGraph(container: AppContainer, navController: NavHostController) 
             )
             StorageHubScreen(
                 viewModel = viewModel,
-                isSessionValid = isSessionValid,
-                onRequireAuthentication = { action -> requestAuthentication(action) },
+                onRequireAuthentication = { forcePrompt, action ->
+                    requestAuthentication(action, forcePrompt)
+                },
                 onBack = { navController.popBackStack() },
                 onOpenSirimScanner = {
                     navController.navigate(Destinations.SirimScanner.route)
