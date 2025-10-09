@@ -311,54 +311,35 @@ class ScannerViewModel private constructor(
     private suspend fun processPending(pending: PendingRecord) {
         val duplicate = repository.findBySerial(pending.serial)
         if (duplicate != null) {
-            _status.value = _status.value.copy(state = ScanState.Duplicate, message = "Duplicate serial detected: ${pending.serial}")
+            duplicateCandidate.value = DuplicateCandidate(pending, duplicate)
+            _duplicateScanState.value = DuplicateScanState(serial = pending.serial)
+            _status.value = _status.value.copy(
+                state = ScanState.Duplicate,
+                message = "Duplicate serial detected: ${pending.serial}",
+                confidence = pending.captureConfidence
+            )
             return
         }
-        val sanitizedCopy = validation.sanitized.mapValues { it.value.copy() }
-        val pending = PendingRecord(
-            serial = serialConfidence.value,
-            fields = sanitizedCopy,
-            imageBytes = result.bitmap?.toJpegByteArray(),
-            timestamp = System.currentTimeMillis(),
-            captureConfidence = result.confidence
-        )
-        appScope.launch {
-            val duplicate = repository.findBySerial(pending.serial)
-            if (duplicate != null) {
-                duplicateCandidate.value = DuplicateCandidate(pending, duplicate)
-                _duplicateScanState.value = DuplicateScanState(serial = pending.serial)
-                _status.value = _status.value.copy(
-                    state = ScanState.Duplicate,
-                    message = "Duplicate serial detected: ${pending.serial}",
-                    confidence = pending.captureConfidence
-                )
-                return@launch
-            }
-            if (_batchMode.value) {
-                val queueSize = addToBatchQueue(pending)
-                if (queueSize == null) {
-                    _status.value = _status.value.copy(
-                        state = ScanState.Duplicate,
-                        message = "${pending.serial} already queued",
-                        confidence = pending.captureConfidence
-                    )
-                    return@launch
-                }
+
+        if (_batchMode.value) {
+            val queueSize = addToBatchQueue(pending)
+            if (queueSize == null) {
                 _status.value = _status.value.copy(
                     state = ScanState.Duplicate,
                     message = "${pending.serial} already queued",
                     confidence = pending.captureConfidence
                 )
-                return
+            } else {
+                _status.value = _status.value.copy(
+                    state = ScanState.Ready,
+                    message = "Queued ${pending.serial} ($queueSize pending)",
+                    confidence = pending.captureConfidence
+                )
             }
-            _status.value = _status.value.copy(
-                state = ScanState.Ready,
-                message = "Queued ${pending.serial} ($queueSize pending)",
-                confidence = pending.captureConfidence
-            )
-        } else {
-            persistPending(pending)
+            return
         }
+
+        persistPending(pending)
     }
 
     private suspend fun persistPending(pending: PendingRecord) {
