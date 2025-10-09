@@ -80,11 +80,6 @@ fun SettingsScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            StartupPreferenceCard(
-                selected = preferences.startupPage,
-                onSelected = onStartupSelected
-            )
-
             AdminAccessCard(
                 isAuthenticated = preferences.isSessionValid(),
                 remainingMillis = preferences.remainingSessionTimeMillis(),
@@ -98,10 +93,22 @@ fun SettingsScreen(
                         password = ""
                     }
                 },
-                onLogout = onLogout,
+                onLogout = {
+                    username = ""
+                    password = ""
+                    onLogout()
+                },
                 authError = authError,
                 onDismissError = onDismissAuthError
             )
+
+            if (preferences.isSessionValid()) {
+                StartupPreferenceCard(
+                    selected = preferences.startupPage,
+                    onSelected = onStartupSelected
+                )
+                // Add additional SKU/setup sections here when protected by admin access.
+            }
 
             AboutCard(onOpenFeedback = onOpenFeedback)
         }
