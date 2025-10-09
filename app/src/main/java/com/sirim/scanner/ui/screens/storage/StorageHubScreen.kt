@@ -44,8 +44,7 @@ import java.util.Date
 @Composable
 fun StorageHubScreen(
     viewModel: StorageHubViewModel,
-    isSessionValid: Boolean,
-    onRequireAuthentication: (() -> Unit) -> Unit,
+    onRequireAuthentication: (forcePrompt: Boolean, afterAuth: () -> Unit) -> Unit,
     onBack: () -> Unit,
     onOpenSirimScanner: () -> Unit,
     onOpenSkuScanner: () -> Unit,
@@ -59,12 +58,8 @@ fun StorageHubScreen(
         ActivityResultContracts.StartActivityForResult()
     ) { }
 
-    fun requireAdmin(action: () -> Unit) {
-        if (isSessionValid) {
-            action()
-        } else {
-            onRequireAuthentication(action)
-        }
+    fun requireAdmin(forcePrompt: Boolean = false, action: () -> Unit) {
+        onRequireAuthentication(forcePrompt, action)
     }
 
     fun viewExport(record: StorageRecord.SkuExport) {
@@ -154,8 +149,8 @@ fun StorageHubScreen(
                                 scannerLabel = R.string.storage_action_scanner,
                                 onScanner = onOpenSirimScanner,
                                 onView = onViewSirimRecords,
-                                onShare = { requireAdmin(onShareSirimRecords) },
-                                onEdit = { requireAdmin(onEditSirimRecords) }
+                                onShare = { requireAdmin(forcePrompt = true, action = onShareSirimRecords) },
+                                onEdit = { requireAdmin(forcePrompt = true, action = onEditSirimRecords) }
                             )
                         }
 
@@ -173,8 +168,12 @@ fun StorageHubScreen(
                                 scannerLabel = R.string.storage_action_sku_scanner,
                                 onScanner = onOpenSkuScanner,
                                 onView = { viewExport(record) },
-                                onShare = { requireAdmin { shareExport(record) } },
-                                onEdit = { requireAdmin { editExport(record) } }
+                                onShare = {
+                                    requireAdmin(forcePrompt = true) { shareExport(record) }
+                                },
+                                onEdit = {
+                                    requireAdmin(forcePrompt = true) { editExport(record) }
+                                }
                             )
                         }
                     }
