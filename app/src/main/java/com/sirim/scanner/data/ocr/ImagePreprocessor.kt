@@ -106,7 +106,7 @@ object ImagePreprocessor {
         val enhanced = Bitmap.createBitmap(rgbaFinal.cols(), rgbaFinal.rows(), Bitmap.Config.ARGB_8888)
         Utils.matToBitmap(rgbaFinal, enhanced)
 
-        val region = roi?.let { Rect(it.x, it.y, it.width, it.height) }
+        val region = roi?.let { Rect(it.x, it.y, it.x + it.width, it.y + it.height) }
 
         mats.forEach(Mat::release)
 
