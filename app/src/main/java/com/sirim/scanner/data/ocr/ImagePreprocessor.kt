@@ -3,6 +3,7 @@ package com.sirim.scanner.data.ocr
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
+import android.util.Log
 import androidx.camera.core.ImageProxy
 import com.sirim.scanner.analytics.PreprocessingMetricsEvent
 import com.sirim.scanner.analytics.ScanAnalytics
@@ -39,7 +40,10 @@ class PreprocessedImage internal constructor(
 
 object ImagePreprocessor {
 
+    private const val TAG = "ImagePreprocessor"
+
     private val opencvInitialised = AtomicBoolean(false)
+    private val opencvInitialisationAttempted = AtomicBoolean(false)
     private const val MAX_DIMENSION = 960
     private const val ROI_VERTICAL_PADDING_FRACTION = 0.35
     private const val ROI_MIN_PADDING_PX = 24
@@ -49,7 +53,13 @@ object ImagePreprocessor {
     fun preprocess(imageProxy: ImageProxy): PreprocessedImage? {
         val startNs = SystemClock.elapsedRealtimeNanos()
         val original = imageProxy.toBitmap()?.ensureMaxDimension(MAX_DIMENSION) ?: return null
-        ensureOpenCv()
+        if (!ensureOpenCv()) {
+            Log.w(TAG, "OpenCV unavailable; skipping preprocessing")
+            if (!original.isRecycled) {
+                original.recycle()
+            }
+            return null
+        }
 
         val mats = mutableListOf<Mat>()
         val rgba = Mat()
@@ -132,9 +142,20 @@ object ImagePreprocessor {
         )
     }
 
-    private fun ensureOpenCv() {
-        if (opencvInitialised.get()) return
-        opencvInitialised.compareAndSet(false, OpenCVLoader.initLocal())
+    private fun ensureOpenCv(): Boolean {
+        if (opencvInitialised.get()) {
+            return true
+        }
+        if (opencvInitialisationAttempted.compareAndSet(false, true)) {
+            val initialised = OpenCVLoader.initLocal()
+            if (initialised) {
+                opencvInitialised.set(true)
+                return true
+            }
+            Log.e(TAG, "Failed to initialise OpenCV via initLocal()")
+            return false
+        }
+        return opencvInitialised.get()
     }
 
     private fun deskew(source: Mat): Mat {

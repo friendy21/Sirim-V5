@@ -63,6 +63,12 @@ class ScannerViewModel private constructor(
     private val _batchQueue = MutableStateFlow<List<PendingRecord>>(emptyList())
     private val batchMutex = Mutex()
 
+    private val _captureReviewState = MutableStateFlow<CaptureReviewState>(CaptureReviewState.Live)
+    val captureReviewState: StateFlow<CaptureReviewState> = _captureReviewState.asStateFlow()
+
+    private var latestPending: PendingRecord? = null
+    private var reviewPending: PendingRecord? = null
+
     val batchUiState: StateFlow<BatchUiState> = combine(_batchMode, _batchQueue) { enabled, queue ->
         BatchUiState(
             enabled = enabled,
@@ -150,6 +156,10 @@ class ScannerViewModel private constructor(
     }
 
     fun analyzeImage(imageProxy: ImageProxy) {
+        if (_captureReviewState.value !is CaptureReviewState.Live) {
+            imageProxy.close()
+            return
+        }
         if (!processing.compareAndSet(false, true)) {
             imageProxy.close()
             return
@@ -166,8 +176,8 @@ class ScannerViewModel private constructor(
                         )
                     }
                     when (result) {
-                        is OcrResult.Success -> handleResult(result, autoPersist = true)
-                        is OcrResult.Partial -> handleResult(result, autoPersist = false)
+                        is OcrResult.Success -> handleResult(result)
+                        is OcrResult.Partial -> handleResult(result)
                         is OcrResult.Failure -> handleFailure(result)
                         OcrResult.Empty -> {
                             _status.value = ScanStatus(state = ScanState.Idle, message = "Align the label within the guide")
@@ -193,7 +203,7 @@ class ScannerViewModel private constructor(
         }
     }
 
-    private suspend fun handleResult(result: OcrResult, autoPersist: Boolean) {
+    private suspend fun handleResult(result: OcrResult) {
         try {
             // Extract debug information
             val startTime = System.currentTimeMillis()
@@ -205,6 +215,7 @@ class ScannerViewModel private constructor(
             }
             if (fields.isEmpty()) {
                 _status.value = ScanStatus(state = ScanState.Scanning, message = "Still searching for readable text")
+                latestPending = null
                 return
             }
 
@@ -239,7 +250,7 @@ class ScannerViewModel private constructor(
             val message = when {
                 validation.errors.isNotEmpty() -> "Review highlighted fields"
                 result is OcrResult.Partial -> "Hold steady for clearer capture"
-                else -> "Data captured"
+                else -> "Tap capture to review"
             }
 
             _status.value = ScanStatus(
@@ -257,12 +268,34 @@ class ScannerViewModel private constructor(
                 }
             )
 
-            if (autoPersist && validation.errors.isEmpty()) {
-                persistIfUnique(validation, result as OcrResult.Success)
-            }
+            latestPending = buildPending(validation, result)
         } finally {
             recycleResultBitmap(result)
         }
+    }
+
+    private fun buildPending(validation: ValidationResult, result: OcrResult): PendingRecord? {
+        val serialConfidence = validation.sanitized["sirimSerialNo"] ?: return null
+        if (serialConfidence.value.isBlank()) {
+            return null
+        }
+        val imageBytes = when (result) {
+            is OcrResult.Success -> result.bitmap?.toJpegByteArray()
+            is OcrResult.Partial -> result.bitmap?.toJpegByteArray()
+            else -> null
+        }
+        val confidence = when (result) {
+            is OcrResult.Success -> result.confidence
+            is OcrResult.Partial -> result.confidence
+            else -> 0f
+        }
+        return PendingRecord(
+            serial = serialConfidence.value,
+            fields = validation.sanitized.mapValues { it.value.copy() },
+            imageBytes = imageBytes,
+            timestamp = System.currentTimeMillis(),
+            captureConfidence = confidence
+        )
     }
 
     private fun handleFailure(result: OcrResult.Failure) {
@@ -275,10 +308,10 @@ class ScannerViewModel private constructor(
         _status.value = ScanStatus(state = state, message = message, confidence = 0f, frames = 0)
     }
 
-    private fun persistIfUnique(validation: ValidationResult, result: OcrResult.Success) {
-        val serialConfidence = validation.sanitized["sirimSerialNo"]
-        if (serialConfidence == null || serialConfidence.value.isBlank()) {
-            _status.value = _status.value.copy(state = ScanState.Error, message = "Serial number missing; manual review required")
+    private suspend fun processPending(pending: PendingRecord) {
+        val duplicate = repository.findBySerial(pending.serial)
+        if (duplicate != null) {
+            _status.value = _status.value.copy(state = ScanState.Duplicate, message = "Duplicate serial detected: ${pending.serial}")
             return
         }
         val sanitizedCopy = validation.sanitized.mapValues { it.value.copy() }
@@ -312,13 +345,19 @@ class ScannerViewModel private constructor(
                     return@launch
                 }
                 _status.value = _status.value.copy(
-                    state = ScanState.Ready,
-                    message = "Queued ${pending.serial} ($queueSize pending)",
+                    state = ScanState.Duplicate,
+                    message = "${pending.serial} already queued",
                     confidence = pending.captureConfidence
                 )
-            } else {
-                persistPending(pending)
+                return
             }
+            _status.value = _status.value.copy(
+                state = ScanState.Ready,
+                message = "Queued ${pending.serial} ($queueSize pending)",
+                confidence = pending.captureConfidence
+            )
+        } else {
+            persistPending(pending)
         }
     }
 
@@ -332,6 +371,87 @@ class ScannerViewModel private constructor(
             message = "Record saved (${pending.serial})",
             confidence = pending.captureConfidence
         )
+    }
+
+    fun onCapture(imageBytes: ByteArray?) {
+        if (_captureReviewState.value !is CaptureReviewState.Live) {
+            return
+        }
+        val fields = _extractedFields.value
+        val pending = latestPending ?: run {
+            _status.value = _status.value.copy(
+                state = ScanState.Error,
+                message = "No readable serial detected"
+            )
+            return
+        }
+        if (fields.isEmpty()) {
+            _status.value = _status.value.copy(
+                state = ScanState.Error,
+                message = "No fields available to capture"
+            )
+            return
+        }
+        val combined = pending.copy(imageBytes = imageBytes ?: pending.imageBytes)
+        reviewPending = combined
+        _captureReviewState.value = CaptureReviewState.Review(
+            imageBytes = combined.imageBytes,
+            fields = fields,
+            warnings = _validationWarnings.value,
+            errors = _validationErrors.value,
+            confidence = combined.captureConfidence
+        )
+        _status.value = _status.value.copy(
+            state = ScanState.Ready,
+            message = if (_validationErrors.value.isEmpty()) {
+                "Review capture before saving"
+            } else {
+                "Fix highlighted issues before saving"
+            },
+            confidence = combined.captureConfidence
+        )
+    }
+
+    fun onRetake() {
+        reviewPending = null
+        latestPending = null
+        _captureReviewState.value = CaptureReviewState.Live
+        _status.value = _status.value.copy(
+            state = ScanState.Idle,
+            message = "Align the label within the guide"
+        )
+    }
+
+    fun onConfirm() {
+        val pending = reviewPending ?: run {
+            _status.value = _status.value.copy(
+                state = ScanState.Error,
+                message = "Nothing to save"
+            )
+            return
+        }
+        if (_validationErrors.value.isNotEmpty()) {
+            _status.value = _status.value.copy(
+                state = ScanState.Error,
+                message = "Resolve validation errors before saving"
+            )
+            return
+        }
+        _captureReviewState.value = CaptureReviewState.Saving
+        reviewPending = null
+        latestPending = null
+        appScope.launch {
+            try {
+                processPending(pending)
+            } finally {
+                _captureReviewState.value = CaptureReviewState.Live
+            }
+        }
+    }
+
+    fun onCaptureError(message: String) {
+        _captureReviewState.value = CaptureReviewState.Live
+        _status.value = ScanStatus(state = ScanState.Error, message = message)
     }
 
     fun clearLastSavedDraft() {
@@ -449,6 +569,19 @@ data class BatchQueueItem(
 data class DuplicateScanState(
     val serial: String
 )
+sealed class CaptureReviewState {
+    data object Live : CaptureReviewState()
+
+    data class Review(
+        val imageBytes: ByteArray?,
+        val fields: Map<String, FieldConfidence>,
+        val warnings: Map<String, String>,
+        val errors: Map<String, String>,
+        val confidence: Float
+    ) : CaptureReviewState()
+
+    data object Saving : CaptureReviewState()
+}
 
 private data class PendingRecord(
     val serial: String,

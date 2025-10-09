@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.res.Configuration
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -18,6 +19,8 @@ import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.MeteringPointFactory
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -26,6 +29,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +42,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -45,13 +50,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Camera
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.FlashOff
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -66,18 +77,24 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -90,11 +107,12 @@ import androidx.lifecycle.LifecycleOwner
 import com.sirim.scanner.data.ocr.FieldConfidence
 import com.sirim.scanner.data.ocr.SirimLabelParser
 import com.sirim.scanner.ui.model.ScanDraft
+import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.material.icons.rounded.Warning
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -114,6 +132,7 @@ fun ScannerScreen(
     val batchUiState by viewModel.batchUiState.collectAsState()
     val ocrDebugInfo by viewModel.ocrDebugInfo.collectAsState()
     val duplicateScanState by viewModel.duplicateScanState.collectAsState()
+    val captureReviewState by viewModel.captureReviewState.collectAsState()
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -161,6 +180,7 @@ fun ScannerScreen(
     }
 
     val scrollState = rememberScrollState()
+    val captureAction = remember { mutableStateOf<(() -> Unit)?>(null) }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val previewHeight = remember(configuration.orientation, configuration.screenWidthDp, configuration.screenHeightDp) {
@@ -204,7 +224,9 @@ fun ScannerScreen(
                         .height(previewHeight),
                     lifecycleOwner = lifecycleOwner,
                     viewModel = viewModel,
-                    status = status
+                    status = status,
+                    captureState = captureReviewState,
+                    captureAction = captureAction
                 )
             } else {
                 CameraPermissionCard(
@@ -232,11 +254,50 @@ fun ScannerScreen(
                 )
             }
 
-            ExtractedFieldsPanel(
-                fields = fields,
-                warnings = warnings,
-                errors = errors
-            )
+            Button(
+                onClick = { captureAction.value?.invoke() },
+                enabled = captureReviewState is CaptureReviewState.Live && captureAction.value != null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Camera,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    when (captureReviewState) {
+                        is CaptureReviewState.Saving -> "Saving..."
+                        is CaptureReviewState.Review -> "Review below"
+                        else -> "Capture Label"
+                    },
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+
+            when (val reviewState = captureReviewState) {
+                is CaptureReviewState.Review -> {
+                    CaptureReviewCard(
+                        review = reviewState,
+                        onRetake = viewModel::onRetake,
+                        onConfirm = viewModel::onConfirm
+                    )
+                }
+
+                CaptureReviewState.Saving -> {
+                    CaptureSavingCard()
+                }
+
+                CaptureReviewState.Live -> {
+                    ExtractedFieldsPanel(
+                        fields = fields,
+                        warnings = warnings,
+                        errors = errors
+                    )
+                }
+            }
         }
     }
 
@@ -513,10 +574,12 @@ private fun CameraPreview(
     modifier: Modifier = Modifier,
     lifecycleOwner: LifecycleOwner,
     viewModel: ScannerViewModel,
-    status: ScanStatus
-
+    status: ScanStatus,
+    captureState: CaptureReviewState,
+    captureAction: MutableState<(() -> Unit)?>
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val previewView = remember {
         PreviewView(context).apply {
@@ -527,11 +590,17 @@ private fun CameraPreview(
     val flashEnabled = rememberSaveable { mutableStateOf(false) }
     val zoomRatio = rememberSaveable { mutableFloatStateOf(1f) }
     val exposureCompensation = rememberSaveable { mutableFloatStateOf(0f) }
+    val imageCapture = remember {
+        ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .build()
+    }
 
     DisposableEffect(lifecycleOwner) {
         val executor = ContextCompat.getMainExecutor(context)
         val listener = Runnable {
             val cameraProvider = cameraProviderFuture.get()
+            cameraProvider.unbindAll()
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
@@ -546,7 +615,8 @@ private fun CameraPreview(
                 lifecycleOwner,
                 CameraSelector.DEFAULT_BACK_CAMERA,
                 preview,
-                analysis
+                analysis,
+                imageCapture
             )
             camera.value = boundCamera
             enableTapToFocus(previewView, boundCamera.cameraControl, previewView.meteringPointFactory)
@@ -554,6 +624,7 @@ private fun CameraPreview(
         cameraProviderFuture.addListener(listener, executor)
 
         onDispose {
+            captureAction.value = null
             runCatching { cameraProviderFuture.get().unbindAll() }
         }
     }
@@ -568,6 +639,43 @@ private fun CameraPreview(
 
     LaunchedEffect(exposureCompensation.floatValue) {
         camera.value?.cameraControl?.setExposureCompensationIndex(exposureCompensation.floatValue.toInt())
+    }
+
+    LaunchedEffect(captureState, imageCapture) {
+        captureAction.value = if (captureState is CaptureReviewState.Live) {
+            {
+                captureAction.value = null
+                val executor = ContextCompat.getMainExecutor(context)
+                val photoFile = File.createTempFile("sirim_capture_", ".jpg", context.cacheDir)
+                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+                imageCapture.takePicture(
+                    outputOptions,
+                    executor,
+                    object : ImageCapture.OnImageSavedCallback {
+                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                            scope.launch(Dispatchers.IO) {
+                                val bytes = runCatching { photoFile.readBytes() }.getOrNull()
+                                photoFile.delete()
+                                withContext(Dispatchers.Main) {
+                                    if (bytes != null) {
+                                        viewModel.onCapture(bytes)
+                                    } else {
+                                        viewModel.onCaptureError("Unable to read captured image")
+                                    }
+                                }
+                            }
+                        }
+
+                        override fun onError(exception: ImageCaptureException) {
+                            photoFile.delete()
+                            viewModel.onCaptureError("Capture failed: ${exception.message}")
+                        }
+                    }
+                )
+            }
+        } else {
+            null
+        }
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -607,6 +715,140 @@ private fun CameraPreview(
                 label = "Exposure",
                 steps = (exposureState.exposureCompensationRange.upper - exposureState.exposureCompensationRange.lower)
             )
+        }
+    }
+}
+
+@Composable
+private fun CaptureReviewCard(
+    review: CaptureReviewState.Review,
+    onRetake: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val previewBitmap = remember(review.imageBytes) {
+        review.imageBytes?.let { bytes ->
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+    }
+
+    DisposableEffect(previewBitmap) {
+        onDispose { previewBitmap?.recycle() }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "Review capture",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 180.dp)
+                    .clip(RoundedCornerShape(16.dp))
+            ) {
+                if (previewBitmap != null) {
+                    Image(
+                        bitmap = previewBitmap.asImageBitmap(),
+                        contentDescription = "Captured preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Preview unavailable", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+
+            Text(
+                text = "Confidence ${(review.confidence * 100).roundToInt()}%",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            HorizontalDivider()
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                review.fields.forEach { (key, confidence) ->
+                    FieldRow(
+                        label = SirimLabelParser.prettifyKey(key),
+                        confidence = confidence,
+                        warning = review.warnings[key],
+                        error = review.errors[key]
+                    )
+                }
+                if (review.warnings.isNotEmpty()) {
+                    review.warnings.forEach { (field, message) ->
+                        WarningRow(
+                            title = "Warning for ${SirimLabelParser.prettifyKey(field)}",
+                            message = message
+                        )
+                    }
+                }
+                if (review.errors.isNotEmpty()) {
+                    review.errors.forEach { (field, message) ->
+                        WarningRow(
+                            title = "Error for ${SirimLabelParser.prettifyKey(field)}",
+                            message = message,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onRetake,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Retake")
+                }
+                Button(
+                    onClick = onConfirm,
+                    enabled = review.errors.isEmpty(),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Rounded.Check, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (review.errors.isEmpty()) "Confirm" else "Fix errors")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureSavingCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CircularProgressIndicator()
+            Text("Saving capture...", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
