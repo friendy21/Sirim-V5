@@ -22,8 +22,15 @@ class BarcodeAnalyzer {
         Barcode.FORMAT_EAN_13,
         Barcode.FORMAT_UPC_A,
         Barcode.FORMAT_UPC_E,
-        Barcode.FORMAT_CODE_128,
-        Barcode.FORMAT_QR_CODE
+        Barcode.FORMAT_CODE_128
+    )
+
+    private val supportedZxingFormats = setOf(
+        BarcodeFormat.EAN_8,
+        BarcodeFormat.EAN_13,
+        BarcodeFormat.UPC_A,
+        BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128
     )
 
     private val barcodeScanner = BarcodeScanning.getClient(
@@ -33,8 +40,7 @@ class BarcodeAnalyzer {
                 Barcode.FORMAT_EAN_13,
                 Barcode.FORMAT_UPC_A,
                 Barcode.FORMAT_UPC_E,
-                Barcode.FORMAT_CODE_128,
-                Barcode.FORMAT_QR_CODE
+                Barcode.FORMAT_CODE_128
             )
             .build()
     )
@@ -46,8 +52,7 @@ class BarcodeAnalyzer {
                 BarcodeFormat.EAN_13,
                 BarcodeFormat.UPC_A,
                 BarcodeFormat.UPC_E,
-                BarcodeFormat.CODE_128,
-                BarcodeFormat.QR_CODE
+                BarcodeFormat.CODE_128
             ),
             DecodeHintType.TRY_HARDER to true
         )
@@ -96,24 +101,28 @@ class BarcodeAnalyzer {
         }
     }
 
-    private fun formatLabel(format: Int): String = when (format) {
-        Barcode.FORMAT_EAN_8 -> "EAN-8"
-        Barcode.FORMAT_EAN_13 -> "EAN-13"
-        Barcode.FORMAT_UPC_A -> "UPC-A"
-        Barcode.FORMAT_UPC_E -> "UPC-E"
-        Barcode.FORMAT_CODE_128 -> "Code 128"
-        Barcode.FORMAT_QR_CODE -> "QR Code"
-        else -> "Barcode"
+    private fun formatLabel(format: Int): String {
+        if (format !in supportedFormats) return "Barcode"
+        return when (format) {
+            Barcode.FORMAT_EAN_8 -> "EAN-8"
+            Barcode.FORMAT_EAN_13 -> "EAN-13"
+            Barcode.FORMAT_UPC_A -> "UPC-A"
+            Barcode.FORMAT_UPC_E -> "UPC-E"
+            Barcode.FORMAT_CODE_128 -> "Code 128"
+            else -> "Barcode"
+        }
     }
 
-    private fun formatLabel(format: BarcodeFormat): String = when (format) {
-        BarcodeFormat.EAN_8 -> "EAN-8"
-        BarcodeFormat.EAN_13 -> "EAN-13"
-        BarcodeFormat.UPC_A -> "UPC-A"
-        BarcodeFormat.UPC_E -> "UPC-E"
-        BarcodeFormat.CODE_128 -> "Code 128"
-        BarcodeFormat.QR_CODE -> "QR Code"
-        else -> "Barcode"
+    private fun formatLabel(format: BarcodeFormat): String {
+        if (format !in supportedZxingFormats) return "Barcode"
+        return when (format) {
+            BarcodeFormat.EAN_8 -> "EAN-8"
+            BarcodeFormat.EAN_13 -> "EAN-13"
+            BarcodeFormat.UPC_A -> "UPC-A"
+            BarcodeFormat.UPC_E -> "UPC-E"
+            BarcodeFormat.CODE_128 -> "Code 128"
+            else -> "Barcode"
+        }
     }
 }
 
