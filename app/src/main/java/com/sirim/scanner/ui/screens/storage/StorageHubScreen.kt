@@ -45,8 +45,7 @@ import java.util.Date
 @Composable
 fun StorageHubScreen(
     viewModel: StorageHubViewModel,
-    isSessionValid: Boolean,
-    onRequireAuthentication: (() -> Unit) -> Unit,
+    onRequireAuthentication: (forcePrompt: Boolean, afterAuth: () -> Unit) -> Unit,
     onBack: () -> Unit,
     onOpenSirimScanner: () -> Unit,
     onOpenSkuScanner: () -> Unit,
@@ -60,12 +59,8 @@ fun StorageHubScreen(
         ActivityResultContracts.StartActivityForResult()
     ) { }
 
-    fun requireAdmin(action: () -> Unit) {
-        if (isSessionValid) {
-            action()
-        } else {
-            onRequireAuthentication(action)
-        }
+    fun requireAdmin(forcePrompt: Boolean = false, action: () -> Unit) {
+        onRequireAuthentication(forcePrompt, action)
     }
 
     fun viewExport(record: StorageRecord.SkuExport) {
