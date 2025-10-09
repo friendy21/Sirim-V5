@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -149,8 +150,9 @@ fun StorageHubScreen(
                                 scannerLabel = R.string.storage_action_scanner,
                                 onScanner = onOpenSirimScanner,
                                 onView = onViewSirimRecords,
-                                onShare = { requireAdmin(forcePrompt = true, action = onShareSirimRecords) },
-                                onEdit = { requireAdmin(forcePrompt = true, action = onEditSirimRecords) }
+                                onShare = { requireAdmin(onShareSirimRecords) },
+                                onEdit = { requireAdmin(onEditSirimRecords) },
+                                onDelete = { requireAdmin { viewModel.clearSirimDatabase() } }
                             )
                         }
 
@@ -168,12 +170,9 @@ fun StorageHubScreen(
                                 scannerLabel = R.string.storage_action_sku_scanner,
                                 onScanner = onOpenSkuScanner,
                                 onView = { viewExport(record) },
-                                onShare = {
-                                    requireAdmin(forcePrompt = true) { shareExport(record) }
-                                },
-                                onEdit = {
-                                    requireAdmin(forcePrompt = true) { editExport(record) }
-                                }
+                                onShare = { requireAdmin { shareExport(record) } },
+                                onEdit = { requireAdmin { editExport(record) } },
+                                onDelete = { requireAdmin { viewModel.deleteSkuExport(record.export) } }
                             )
                         }
                     }
@@ -192,7 +191,8 @@ private fun StorageHubCard(
     onScanner: () -> Unit,
     onView: () -> Unit,
     onShare: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -228,6 +228,16 @@ private fun StorageHubCard(
                 }
                 Button(onClick = onEdit, modifier = Modifier.weight(1f)) {
                     Text(text = stringResource(id = R.string.storage_action_edit))
+                }
+                Button(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) {
+                    Text(text = stringResource(id = R.string.storage_action_delete))
                 }
             }
         }
