@@ -167,8 +167,8 @@ fun StorageHubScreen(
                                     record.export.recordCount
                                 ),
                                 updatedAt = record.createdAt,
-                                scannerLabel = R.string.storage_action_sku_scanner,
-                                onScanner = onOpenSkuScanner,
+                                scannerLabel = R.string.storage_action_scanner,
+                                onScanner = onOpenSirimScanner,
                                 onView = { viewExport(record) },
                                 onShare = { requireAdmin { shareExport(record) } },
                                 onEdit = { requireAdmin { editExport(record) } },
