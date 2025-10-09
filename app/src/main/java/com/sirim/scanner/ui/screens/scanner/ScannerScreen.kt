@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -73,6 +74,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -165,6 +167,17 @@ fun ScannerScreen(
         }
     }
 
+    val scrollState = rememberScrollState()
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val previewHeight = remember(configuration.orientation, configuration.screenWidthDp, configuration.screenHeightDp) {
+        if (isLandscape) {
+            (configuration.screenHeightDp.dp * 0.6f).coerceAtLeast(200.dp)
+        } else {
+            (configuration.screenWidthDp.dp * 4f / 3f).coerceAtLeast(240.dp)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -179,6 +192,7 @@ fun ScannerScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .verticalScroll(scrollState)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -194,7 +208,7 @@ fun ScannerScreen(
                 CameraPreview(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .height(previewHeight),
                     lifecycleOwner = lifecycleOwner,
                     viewModel = viewModel,
                     status = status
@@ -203,7 +217,7 @@ fun ScannerScreen(
                 CameraPermissionCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .height(previewHeight),
                     title = "Camera access needed",
                     description = if (shouldShowRationale) {
                         "SIRIM Scanner needs the camera to capture label details. Please allow access."
