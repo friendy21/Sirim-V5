@@ -8,11 +8,17 @@ data class UserPreferences(
 ) {
     fun isSessionValid(nowMillis: Long = System.currentTimeMillis()): Boolean {
         if (!isAuthenticated) return false
+        if (authExpiryDurationMillis <= 0L) {
+            return authTimestamp == android.os.Process.myPid().toLong()
+        }
         val expiryAt = authTimestamp + authExpiryDurationMillis
         return nowMillis < expiryAt
     }
 
     fun remainingSessionTimeMillis(nowMillis: Long = System.currentTimeMillis()): Long {
+        if (authExpiryDurationMillis <= 0L) {
+            return 0L
+        }
         val expiryAt = authTimestamp + authExpiryDurationMillis
         return (expiryAt - nowMillis).coerceAtLeast(0L)
     }
