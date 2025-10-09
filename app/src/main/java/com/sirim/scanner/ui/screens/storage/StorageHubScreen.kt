@@ -5,6 +5,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -150,6 +151,7 @@ fun StorageHubScreen(
                                 title = record.title,
                                 description = record.description,
                                 updatedAt = record.createdAt,
+                                scannerLabel = R.string.storage_action_scanner,
                                 onScanner = onOpenSirimScanner,
                                 onView = onViewSirimRecords,
                                 onShare = { requireAdmin(onShareSirimRecords) },
@@ -168,6 +170,7 @@ fun StorageHubScreen(
                                     record.export.recordCount
                                 ),
                                 updatedAt = record.createdAt,
+                                scannerLabel = R.string.storage_action_sku_scanner,
                                 onScanner = onOpenSkuScanner,
                                 onView = { viewExport(record) },
                                 onShare = { requireAdmin { shareExport(record) } },
@@ -186,6 +189,7 @@ private fun StorageHubCard(
     title: String,
     description: String,
     updatedAt: Long,
+    @StringRes scannerLabel: Int,
     onScanner: () -> Unit,
     onView: () -> Unit,
     onShare: () -> Unit,
@@ -213,7 +217,7 @@ private fun StorageHubCard(
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onScanner, modifier = Modifier.weight(1f)) {
-                    Text(text = stringResource(id = R.string.storage_action_scanner))
+                    Text(text = stringResource(id = scannerLabel))
                 }
                 Button(onClick = onView, modifier = Modifier.weight(1f)) {
                     Text(text = stringResource(id = R.string.storage_action_view))
